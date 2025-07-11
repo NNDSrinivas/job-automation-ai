@@ -24,3 +24,19 @@ alembic
 psycopg2-binary
 pydantic[email]
 websockets
+
+# Monitoring and Production Dependencies
+prometheus-client
+psutil
+gunicorn
+flower
+structlog
+httpx
+
+# Development and Testing
+pytest
+pytest-asyncio
+pytest-cov
+black
+isort
+flake8
