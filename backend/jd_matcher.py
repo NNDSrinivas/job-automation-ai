@@ -3,6 +3,7 @@
 import os
 from openai import OpenAI
 from dotenv import load_dotenv
+from user_profile import extract_user_info
 
 load_dotenv()
 
@@ -36,7 +37,16 @@ def match_jd(resume_text: str, job_description: str) -> float:
             temperature=0.2
         )
         score_text = response.choices[0].message.content.strip()
-        score = float(score_text)
+
+        # Extract just the number from the response
+        import re
+        numbers = re.findall(r'\d+\.?\d*', score_text)
+        if numbers:
+            score = float(numbers[0])
+        else:
+            print(f"Could not parse score from: {score_text}")
+            return 0.0
+
         return max(0.0, min(100.0, score))  # Clamp between 0 and 100
     except Exception as e:
         print(f"Error from OpenAI API: {e}")

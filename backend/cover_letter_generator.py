@@ -2,6 +2,7 @@ from openai import OpenAI
 import os
 import re
 from datetime import datetime
+from user_profile import extract_user_info
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -17,7 +18,10 @@ def extract_user_details(resume_text):
     return name, location, email
 
 def generate_cover_letter(resume_text, job_description, company, position):
-    name, location, email = extract_user_details(resume_text)
+    user_info = extract_user_info(resume_text)
+    name = user_info.get('name', 'Your Name')
+    location = user_info.get('location', 'Your City, ST')
+    email = user_info.get('email', 'youremail@example.com')
     today = datetime.today().strftime("%B %d, %Y")
 
     prompt = f"""Write a professional and concise cover letter using the details below. Format the letter properly and keep it specific.

@@ -1,12 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-
-interface ResumeInfo {
-  name: string;
-  content: string;
-  isPrimary: boolean;
-}
+import { ResumeInfo } from './types';
+import { uploadResume } from '../services/resumeService';
+import axiosInstance from '../utils/axiosInstance';
+import { toast } from 'react-toastify';
+import Spinner from './Spinner';
 
 const ResumeUpload = () => {
   const [file, setFile] = useState<File | null>(null);
@@ -36,22 +34,14 @@ const ResumeUpload = () => {
   const handleUpload = async () => {
     if (!file) {
       setError('Please select a resume file to upload.');
+      toast.error('Please select a resume file to upload.');
       return;
     }
-
-    if (resumes.length >= maxResumes) {
-      setError(`Maximum ${maxResumes} resumes allowed.`);
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append('file', file);
-
+    setUploading(true);
+    setError('');
     try {
-      setUploading(true);
-      const response = await axios.post('http://localhost:8000/upload-resume', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      const response = await uploadResume(file);
+      toast.success('Resume uploaded successfully!');
 
       const { resume_text, user_info } = response.data;
       localStorage.setItem('resumeText', resume_text);
@@ -68,16 +58,11 @@ const ResumeUpload = () => {
       setFile(null);
       setError('');
       navigate('/match');
-    } catch (err: unknown) {
-      console.error('Resume upload failed:', err);
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('Resume upload failed.');
-      }
-    } finally {
-      setUploading(false);
+    } catch (err) {
+      setError('Resume upload failed.');
+      toast.error('Resume upload failed.');
     }
+    setUploading(false);
   };
 
   const handleDelete = (name: string) => {
@@ -109,13 +94,14 @@ const ResumeUpload = () => {
         />
         <button
           onClick={handleUpload}
+          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
           disabled={uploading}
-          className="w-full bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700"
         >
           {uploading ? 'Uploading...' : 'Continue'}
         </button>
 
-        {error && <p className="text-red-600 mt-2 text-center">{error}</p>}
+        {uploading && <Spinner />}
+        {error && <div className="text-red-600 mb-2">{error}</div>}
 
         {resumes.length > 0 && (
           <div className="mt-6">

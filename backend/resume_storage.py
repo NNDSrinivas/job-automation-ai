@@ -1,11 +1,33 @@
 import os
 from pathlib import Path
 import json
+import boto3
+from botocore.exceptions import BotoCoreError, NoCredentialsError
 
 STORAGE_DIR = Path(__file__).resolve().parent / "resume_storage"
 STORAGE_DIR.mkdir(exist_ok=True)
 
 MAX_RESUMES = 5
+
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
+AWS_S3_BUCKET = os.getenv("AWS_S3_BUCKET")
+
+s3_client = boto3.client(
+    's3',
+    aws_access_key_id=AWS_ACCESS_KEY_ID,
+    aws_secret_access_key=AWS_SECRET_ACCESS_KEY
+)
+
+def upload_resume_to_s3(file_path: str, filename: str, user_id: str) -> str:
+    try:
+        s3_key = f"resumes/{user_id}/{filename}"
+        s3_client.upload_file(file_path, AWS_S3_BUCKET, s3_key)
+        s3_url = f"https://{AWS_S3_BUCKET}.s3.amazonaws.com/{s3_key}"
+        return s3_url
+    except (BotoCoreError, NoCredentialsError) as e:
+        print(f"S3 upload error: {e}")
+        return ""
 
 def get_user_resume_path(user_id: str) -> Path:
     return STORAGE_DIR / f"{user_id}.json"

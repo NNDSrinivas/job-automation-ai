@@ -1,0 +1,55 @@
+
+.mentor-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 220px;
+  z-index: 1000;
+  text-align: center;
+}
+
+.mentor-lottie {
+  width: 150px;
+  height: 150px;
+  margin: 0 auto;
+}
+
+.mentor-message {
+  font-size: 0.9rem;
+  background-color: #f3f4f6;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-top: 10px;
+  color: #111827;
+}
+
+.speech-bubble {
+  position: relative;
+  background: #f3f4f6;
+  border-radius: 0.4em;
+  padding: 10px;
+}
+
+.speech-bubble::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border: 10px solid transparent;
+  border-top-color: #f3f4f6;
+  border-bottom: 0;
+  margin-left: -10px;
+  margin-bottom: -10px;
+}
+
+.floating {
+  animation: float 1.2s ease-in-out;
+}
+
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+  100% { transform: translateY(0px); }
+}
