@@ -9,6 +9,7 @@ import Spinner from './Spinner';
 
 interface AuthContextType {
   isAuthenticated: boolean;
+  user: { id: number; username: string; email: string } | null;
   login: (username: string, password: string) => Promise<boolean>;
   register: (username: string, email: string, password: string) => Promise<boolean>;
   logout: () => void;
@@ -27,12 +28,41 @@ interface JwtPayload {
 
 export const AuthProvider = ({ children }: Props) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState<{ id: number; username: string; email: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
     const token = localStorage.getItem('token');
-    setIsAuthenticated(!!token);
+    if (token) {
+      try {
+        const decoded = jwtDecode<JwtPayload>(token);
+        // Check if token is still valid
+        if (decoded.exp * 1000 > Date.now()) {
+          setIsAuthenticated(true);
+          // Try to get user info from stored data or decode from token
+          const userInfo = localStorage.getItem('userInfo');
+          if (userInfo) {
+            setUser(JSON.parse(userInfo));
+          } else {
+            // Set basic user info from token
+            setUser({
+              id: decoded.sub || decoded.user_id || 1,
+              username: decoded.username || 'user',
+              email: decoded.email || ''
+            });
+          }
+        } else {
+          // Token expired
+          localStorage.removeItem('token');
+          localStorage.removeItem('userInfo');
+        }
+      } catch (error) {
+        console.error('Error decoding token:', error);
+        localStorage.removeItem('token');
+        localStorage.removeItem('userInfo');
+      }
+    }
     setLoading(false);
   }, []);
 
@@ -47,6 +77,16 @@ export const AuthProvider = ({ children }: Props) => {
 
       console.log('Login response:', response.data);
       localStorage.setItem('token', response.data.access_token);
+
+      // Store user info
+      const userInfo = {
+        id: response.data.user_id || 1,
+        username: username,
+        email: response.data.email || ''
+      };
+      localStorage.setItem('userInfo', JSON.stringify(userInfo));
+      setUser(userInfo);
+
       setIsAuthenticated(true);
       setLoading(false);
       toast.success('Login successful!');
@@ -98,13 +138,15 @@ export const AuthProvider = ({ children }: Props) => {
 
   const logout = () => {
     localStorage.removeItem('token');
+    localStorage.removeItem('userInfo');
     setIsAuthenticated(false);
+    setUser(null);
     toast.info('You have been logged out.');
     navigate('/login');
   };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, login, register, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated, user, login, register, logout }}>
       {loading ? <Spinner /> : children}
     </AuthContext.Provider>
   );

@@ -87,14 +87,14 @@ An intelligent job automation system that scrapes jobs from multiple platforms, 
    ```bash
    cd backend
    pip install -r requirements.txt
-   
+
    # Create environment file
    cp .env.example .env
    # Edit .env with your OpenAI API key and other settings
-   
+
    # Initialize database
    alembic upgrade head
-   
+
    # Start the backend server
    uvicorn main:app --reload --host 0.0.0.0 --port 8000
    ```
@@ -103,11 +103,11 @@ An intelligent job automation system that scrapes jobs from multiple platforms, 
    ```bash
    cd frontend
    npm install
-   
+
    # Create environment file
    cp .env.example .env.local
    # Edit .env.local if needed
-   
+
    # Start the development server
    npm run dev
    ```
