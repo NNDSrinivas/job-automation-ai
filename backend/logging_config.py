@@ -14,7 +14,7 @@ import os
 # Custom JSON Formatter
 class JSONFormatter(logging.Formatter):
     """Custom JSON formatter for structured logging"""
-    
+
     def format(self, record):
         log_entry = {
             'timestamp': datetime.utcnow().isoformat(),
@@ -25,21 +25,21 @@ class JSONFormatter(logging.Formatter):
             'function': record.funcName,
             'line': record.lineno,
         }
-        
+
         # Add exception info if present
         if record.exc_info:
             log_entry['exception'] = self.formatException(record.exc_info)
-        
+
         # Add extra fields if present
         if hasattr(record, 'user_id'):
             log_entry['user_id'] = record.user_id
-        
+
         if hasattr(record, 'request_id'):
             log_entry['request_id'] = record.request_id
-        
+
         if hasattr(record, 'duration'):
             log_entry['duration'] = record.duration
-        
+
         return json.dumps(log_entry)
 
 # Logging Configuration
@@ -132,10 +132,10 @@ def setup_logging():
     """Setup logging configuration"""
     # Create logs directory if it doesn't exist
     os.makedirs('logs', exist_ok=True)
-    
+
     # Apply logging configuration
     logging.config.dictConfig(LOGGING_CONFIG)
-    
+
     # Get logger for this module
     logger = logging.getLogger('job_automation.logging')
     logger.info("Logging configuration initialized")
@@ -146,7 +146,7 @@ def get_logger(name: str) -> logging.Logger:
 
 class LoggerAdapter(logging.LoggerAdapter):
     """Custom logger adapter for adding context"""
-    
+
     def process(self, msg, kwargs):
         # Add extra context to log records
         extra = kwargs.get('extra', {})
@@ -166,11 +166,11 @@ def log_performance(logger_name: str = None):
         def wrapper(*args, **kwargs):
             logger = get_logger(logger_name or func.__module__)
             start_time = datetime.utcnow()
-            
+
             try:
                 result = func(*args, **kwargs)
                 duration = (datetime.utcnow() - start_time).total_seconds()
-                
+
                 logger.info(
                     f"Function {func.__name__} completed",
                     extra={
@@ -179,12 +179,12 @@ def log_performance(logger_name: str = None):
                         'status': 'success'
                     }
                 )
-                
+
                 return result
-                
+
             except Exception as e:
                 duration = (datetime.utcnow() - start_time).total_seconds()
-                
+
                 logger.error(
                     f"Function {func.__name__} failed: {str(e)}",
                     extra={
@@ -195,9 +195,9 @@ def log_performance(logger_name: str = None):
                     },
                     exc_info=True
                 )
-                
+
                 raise
-        
+
         return wrapper
     return decorator
 

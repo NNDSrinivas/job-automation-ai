@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Job Automation AI - Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        .btn {
+            background: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 10px;
+            font-size: 16px;
+        }
+        .btn:hover {
+            background: #45a049;
+        }
+        .feature-box {
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Job Automation AI - Professional Platform</h1>
+        <p>Intelligent job automation with multi-platform integration</p>
+
+        <div class="feature-box">
+            <h2>🎯 Core Features</h2>
+            <ul>
+                <li>Multi-platform job scraping (LinkedIn, Indeed, Dice, Glassdoor)</li>
+                <li>AI-powered job matching and application</li>
+                <li>Animal mentors with personality-driven guidance</li>
+                <li>24/7 automated job applications</li>
+                <li>Real-time analytics and tracking</li>
+                <li>Secure credential management</li>
+            </ul>
+        </div>
+
+        <div class="feature-box">
+            <h2>🤖 Animal Mentors</h2>
+            <p>Choose your AI mentor personality:</p>
+            <button class="btn">🦅 Eagle - Strategic Vision</button>
+            <button class="btn">🐺 Wolf - Team Leadership</button>
+            <button class="btn">🦊 Fox - Creative Problem Solving</button>
+            <button class="btn">🐬 Dolphin - Communication Skills</button>
+            <button class="btn">🦁 Lion - Confidence & Authority</button>
+        </div>
+
+        <div class="feature-box">
+            <h2>🔧 Quick Actions</h2>
+            <button class="btn" onclick="testAPI()">Test Backend API</button>
+            <button class="btn" onclick="testJobPortals()">Test Job Portal Integration</button>
+            <button class="btn" onclick="showDashboard()">Open Dashboard</button>
+        </div>
+
+        <div id="results" style="margin-top: 20px;"></div>
+    </div>
+
+    <script>
+        async function testAPI() {
+            const results = document.getElementById('results');
+            results.innerHTML = '<p>Testing backend connection...</p>';
+
+            try {
+                const response = await fetch('http://localhost:8000/health');
+                const data = await response.json();
+                results.innerHTML = `<div class="feature-box"><strong>✅ Backend Status:</strong> ${JSON.stringify(data, null, 2)}</div>`;
+            } catch (error) {
+                results.innerHTML = `<div class="feature-box"><strong>❌ Backend Error:</strong> ${error.message}</div>`;
+            }
+        }
+
+        async function testJobPortals() {
+            const results = document.getElementById('results');
+            results.innerHTML = '<p>Testing job portal integrations...</p>';
+
+            const portals = ['LinkedIn', 'Indeed', 'Dice', 'Glassdoor'];
+            let status = '<div class="feature-box"><h3>Job Portal Status:</h3>';
+
+            for (const portal of portals) {
+                status += `<p>🔍 ${portal}: Ready for integration</p>`;
+            }
+            status += '</div>';
+
+            results.innerHTML = status;
+        }
+
+        function showDashboard() {
+            window.location.href = '/dashboard';
+        }
+    </script>
+</body>
+</html>

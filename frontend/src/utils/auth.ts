@@ -1,7 +1,7 @@
 // src/utils/auth.ts
 import { jwtDecode } from 'jwt-decode';
 
-const TOKEN_KEY = 'token';
+const TOKEN_KEY = 'access_token';
 const USER_INFO_KEY = 'userInfo';
 
 export const getToken = (): string | null => {

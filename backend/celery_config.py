@@ -21,7 +21,8 @@ celery_app = Celery(
     include=[
         'tasks.application_tasks',
         'tasks.scraping_tasks',
-        'tasks.notification_tasks'
+        'tasks.notification_tasks',
+        'tasks.automation_tasks'
     ]
 )
 
@@ -38,6 +39,8 @@ celery_app.conf.update(
         'tasks.application_tasks.*': {'queue': 'applications'},
         'tasks.scraping_tasks.*': {'queue': 'scraping'},
         'tasks.notification_tasks.*': {'queue': 'notifications'},
+        'tasks.automation_tasks.*': {'queue': 'automation'},
+        'tasks.automated_job_application': {'queue': 'automation'},
     },
 
     # Worker configuration
@@ -88,6 +91,10 @@ CELERY_QUEUES = {
     'notifications': {
         'routing_key': 'notifications',
         'priority': 8
+    },
+    'automation': {
+        'routing_key': 'automation',
+        'priority': 9
     }
 }
 

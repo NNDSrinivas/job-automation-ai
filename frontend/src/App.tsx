@@ -1,74 +1,214 @@
-// Absolutely minimal React app - NO ROUTER - NO DEPENDENCIES
-function App() {
-  console.log('🔥 REACT APP IS MOUNTING! 🔥');
-  console.log('If you see this message in browser console, React is working!');
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { ToastContainer } from 'react-toastify';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { ToastProvider } from './components/ToastProvider';
+import Dashboard from './pages/Dashboard';
+import LoginPage from './pages/LoginPage';
+import SignupPage from './pages/SignupPage';
+import LandingPage from './pages/LandingPage';
+import SimpleJobsPage from './pages/SimpleJobsPage';
+import ProfilePage from './pages/ProfilePage';
+import AutomationPage from './pages/AutomationPage';
+import ApplicationsPage from './pages/ApplicationsPage';
+import AnalyticsPage from './pages/AnalyticsPage';
+import ChatbotPage from './pages/ChatbotPage';
+import QuestionnairePage from './pages/QuestionnairePage';
+import JobPortalsPage from './pages/JobPortalsPage';
+import ResumeManagerPage from './pages/ResumeManagerPage';
+import ProtectedRoute from './components/ProtectedRoute';
+import Navbar from './components/Navbar';
+import './App.css';
+import 'react-toastify/dist/ReactToastify.css';
 
-  // Add a side effect to modify document title
-  if (typeof document !== 'undefined') {
-    document.title = '🎯 WORKING - Job Automation AI';
+// Component to handle authenticated routing
+const AuthenticatedApp: React.FC = () => {
+  const { isAuthenticated, loading, user } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-pink-900 flex items-center justify-center">
+        <div className="text-white text-xl">Loading authentication...</div>
+      </div>
+    );
   }
 
   return (
-    <div style={{
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      width: '100vw',
-      height: '100vh',
-      backgroundColor: '#FF0000', // BRIGHT RED background
-      color: 'white',
-      display: 'flex',
-      flexDirection: 'column',
-      justifyContent: 'center',
-      alignItems: 'center',
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '24px',
-      fontWeight: 'bold',
-      textAlign: 'center',
-      zIndex: 9999
-    }}>
-      <div style={{
-        backgroundColor: '#000000',
-        color: '#FFFF00', // Yellow text on black
-        padding: '40px',
-        borderRadius: '20px',
-        border: '5px solid #FFFFFF',
-        boxShadow: '0 0 50px rgba(255,255,255,0.8)'
-      }}>
-        <h1 style={{
-          margin: '0 0 20px 0',
-          fontSize: '48px',
-          textShadow: '2px 2px 4px rgba(0,0,0,0.5)'
-        }}>
-          🎯 REACT IS WORKING! 🎯
-        </h1>
-        <p style={{ margin: '0 0 10px 0', fontSize: '28px' }}>
-          ✅ Frontend Successfully Loaded!
-        </p>
-        <p style={{ margin: '0 0 10px 0', fontSize: '24px' }}>
-          🐳 Docker Container Running
-        </p>
-        <p style={{ margin: '0 0 10px 0', fontSize: '24px' }}>
-          ⚡ Vite Build Complete
-        </p>
-        <p style={{ margin: '20px 0 0 0', fontSize: '20px', color: '#00FF00' }}>
-          If you see this, the white page issue is FIXED!
-        </p>
-      </div>
+    <>
+      {isAuthenticated && <Navbar />}
+      <Routes>
+        <Route
+          path="/login"
+          element={
+            !isAuthenticated ? (
+              <LoginPage />
+            ) : (
+              <Navigate to="/dashboard" replace />
+            )
+          }
+        />
+        <Route
+          path="/signup"
+          element={
+            !isAuthenticated ? (
+              <SignupPage />
+            ) : (
+              <Navigate to="/dashboard" replace />
+            )
+          }
+        />
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/jobs"
+          element={
+            <ProtectedRoute>
+              <SimpleJobsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <ProfilePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/auto-apply"
+          element={
+            <ProtectedRoute>
+              <AutomationPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/automation"
+          element={
+            <ProtectedRoute>
+              <AutomationPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/applications"
+          element={
+            <ProtectedRoute>
+              <ApplicationsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/analytics"
+          element={
+            <ProtectedRoute>
+              <AnalyticsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/chat"
+          element={
+            <ProtectedRoute>
+              <ChatbotPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/ai-chat"
+          element={
+            <ProtectedRoute>
+              <ChatbotPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/questionnaire"
+          element={
+            <ProtectedRoute>
+              <QuestionnairePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/portals"
+          element={
+            <ProtectedRoute>
+              <JobPortalsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/resume-manager"
+          element={
+            <ProtectedRoute>
+              <ResumeManagerPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/"
+          element={
+            !isAuthenticated ? (
+              <LandingPage />
+            ) : (
+              <Navigate to="/dashboard" replace />
+            )
+          }
+        />
+        {/* Catch-all route */}
+        <Route
+          path="*"
+          element={
+            <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+              <div className="text-center">
+                <h1 className="text-2xl font-bold text-gray-900 mb-4">Page Not Found</h1>
+                <p className="text-gray-600 mb-6">The page you're looking for doesn't exist.</p>
+                <button
+                  onClick={() => window.location.href = '/'}
+                  className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Go Home
+                </button>
+              </div>
+            </div>
+          }
+        />
+      </Routes>
+    </>
+  );
+};
 
-      <div style={{
-        marginTop: '30px',
-        backgroundColor: '#00FF00',
-        color: '#000000',
-        padding: '20px',
-        borderRadius: '10px',
-        fontSize: '18px'
-      }}>
-        <p style={{ margin: 0 }}>
-          🔍 Check browser console (F12) for "REACT APP IS MOUNTING!" message
-        </p>
-      </div>
-    </div>
+function App() {
+  return (
+    <AuthProvider>
+      <ToastProvider>
+        <Router>
+          <div className="App">
+            <AuthenticatedApp />
+            <ToastContainer
+              position="top-right"
+              autoClose={5000}
+              hideProgressBar={false}
+              newestOnTop={false}
+              closeOnClick
+              rtl={false}
+              pauseOnFocusLoss
+              draggable
+              pauseOnHover
+              theme="light"
+            />
+          </div>
+        </Router>
+      </ToastProvider>
+    </AuthProvider>
   );
 }
 

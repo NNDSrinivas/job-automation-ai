@@ -38,7 +38,7 @@ services:
 
   # FastAPI Backend
   backend:
-    build: 
+    build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: job_automation_backend
@@ -67,7 +67,7 @@ services:
 
   # Celery Worker
   celery_worker:
-    build: 
+    build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: job_automation_worker
@@ -90,7 +90,7 @@ services:
 
   # Celery Beat (Scheduler)
   celery_beat:
-    build: 
+    build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: job_automation_scheduler
@@ -113,7 +113,7 @@ services:
 
   # Celery Flower (Monitoring)
   flower:
-    build: 
+    build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: job_automation_flower
@@ -129,7 +129,7 @@ services:
 
   # React Frontend
   frontend:
-    build: 
+    build:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: job_automation_frontend

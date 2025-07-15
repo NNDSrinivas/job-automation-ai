@@ -20,8 +20,12 @@ const CoverLetterGenerator: React.FC<Props> = ({ resumeText }) => {
     setLoading(true);
     setError(null);
     try {
-      const letter = await generateCoverLetter(resumeText, jobDescription, company, position);
-      setCoverLetter(letter);
+      const response = await generateCoverLetter({
+        jobTitle: position,
+        companyName: company,
+        jobDescription: jobDescription
+      });
+      setCoverLetter(response.content);
       toast.success('Cover letter generated!');
     } catch (err: unknown) {
       setError('Something went wrong while generating the cover letter.');

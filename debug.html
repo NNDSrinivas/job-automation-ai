@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Auth Debug Tool</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .section { border: 1px solid #ccc; padding: 15px; margin: 10px 0; }
+        button { padding: 10px; margin: 5px; }
+        .status { font-weight: bold; }
+        .success { color: green; }
+        .error { color: red; }
+        .info { color: blue; }
+        textarea { width: 100%; height: 100px; }
+    </style>
+</head>
+<body>
+    <h1>Job Automation AI - Auth Debug Tool</h1>
+
+    <div class="section">
+        <h3>1. Check Current Auth State</h3>
+        <button onclick="checkAuthState()">Check Auth State</button>
+        <div id="authState"></div>
+    </div>
+
+    <div class="section">
+        <h3>2. Clear Auth State</h3>
+        <button onclick="clearAuth()">Clear localStorage & Reload</button>
+    </div>
+
+    <div class="section">
+        <h3>3. Test Login</h3>
+        <input type="text" id="username" placeholder="Username or Email" value="test_1752528002">
+        <input type="password" id="password" placeholder="Password" value="testpass123">
+        <button onclick="testLogin()">Test Login</button>
+        <div id="loginResult"></div>
+    </div>
+
+    <div class="section">
+        <h3>4. Navigation Tests</h3>
+        <button onclick="goToRoot()">Go to / (Root)</button>
+        <button onclick="goToLogin()">Go to /login</button>
+        <button onclick="goToDashboard()">Go to /dashboard</button>
+        <div id="navResult"></div>
+    </div>
+
+    <div class="section">
+        <h3>5. Debug Log</h3>
+        <textarea id="debugLog" readonly></textarea>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+
+    <script>
+        function log(message) {
+            const debugLog = document.getElementById('debugLog');
+            const timestamp = new Date().toLocaleTimeString();
+            debugLog.value += `[${timestamp}] ${message}\n`;
+            debugLog.scrollTop = debugLog.scrollHeight;
+            console.log(message);
+        }
+
+        function checkAuthState() {
+            const token = localStorage.getItem('authToken');
+            const authState = document.getElementById('authState');
+
+            if (token) {
+                authState.innerHTML = `<span class="info">Token found: ${token.substring(0, 50)}...</span>`;
+                log('Token found in localStorage');
+
+                // Test token validity
+                fetch('http://localhost:8000/api/auth/me', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.id) {
+                        authState.innerHTML += `<br><span class="success">Token valid - User: ${data.username} (${data.email})</span>`;
+                        log(`Token is valid - User: ${data.username}`);
+                    } else {
+                        authState.innerHTML += `<br><span class="error">Token invalid</span>`;
+                        log('Token is invalid');
+                    }
+                })
+                .catch(error => {
+                    authState.innerHTML += `<br><span class="error">Token validation error: ${error}</span>`;
+                    log(`Token validation error: ${error}`);
+                });
+            } else {
+                authState.innerHTML = '<span class="info">No token found</span>';
+                log('No token found in localStorage');
+            }
+        }
+
+        function clearAuth() {
+            localStorage.clear();
+            log('localStorage cleared');
+            window.location.reload();
+        }
+
+        function testLogin() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const resultDiv = document.getElementById('loginResult');
+
+            log(`Testing login for: ${username}`);
+            resultDiv.innerHTML = 'Testing login...';
+
+            const formData = new FormData();
+            formData.append('username', username);
+            formData.append('password', password);
+
+            fetch('http://localhost:8000/login', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.access_token) {
+                    localStorage.setItem('authToken', data.access_token);
+                    resultDiv.innerHTML = `<span class="success">Login successful! Token stored.</span>`;
+                    log(`Login successful for user: ${data.username}`);
+
+                    // Simulate frontend auth state change
+                    setTimeout(() => {
+                        log('Simulating navigation to dashboard...');
+                        resultDiv.innerHTML += '<br>Should redirect to dashboard now...';
+                    }, 1000);
+                } else {
+                    resultDiv.innerHTML = `<span class="error">Login failed: ${data.detail || 'Unknown error'}</span>`;
+                    log(`Login failed: ${data.detail || 'Unknown error'}`);
+                }
+            })
+            .catch(error => {
+                resultDiv.innerHTML = `<span class="error">Login error: ${error}</span>`;
+                log(`Login error: ${error}`);
+            });
+        }
+
+        function goToRoot() {
+            log('Navigating to root /');
+            window.location.href = '/';
+        }
+
+        function goToLogin() {
+            log('Navigating to /login');
+            window.location.href = '/login';
+        }
+
+        function goToDashboard() {
+            log('Navigating to /dashboard');
+            window.location.href = '/dashboard';
+        }
+
+        function clearLog() {
+            document.getElementById('debugLog').value = '';
+        }
+
+        // Initialize
+        window.onload = function() {
+            log('Auth Debug Tool loaded');
+            checkAuthState();
+        };
+    </script>
+</body>
+</html>

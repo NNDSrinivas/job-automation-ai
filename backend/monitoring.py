@@ -66,36 +66,36 @@ SYSTEM_METRICS = Gauge(
 
 class MetricsMiddleware(BaseHTTPMiddleware):
     """Middleware to collect HTTP request metrics"""
-    
+
     async def dispatch(self, request: Request, call_next):
         start_time = time.time()
-        
+
         # Get endpoint pattern
         endpoint = request.url.path
         method = request.method
-        
+
         # Increment active connections
         ACTIVE_CONNECTIONS.inc()
-        
+
         try:
             response = await call_next(request)
             status_code = response.status_code
-            
+
             # Record metrics
             REQUEST_COUNT.labels(
                 method=method,
                 endpoint=endpoint,
                 status_code=status_code
             ).inc()
-            
+
             duration = time.time() - start_time
             REQUEST_DURATION.labels(
                 method=method,
                 endpoint=endpoint
             ).observe(duration)
-            
+
             return response
-            
+
         except Exception as e:
             # Record error metrics
             REQUEST_COUNT.labels(
@@ -103,50 +103,50 @@ class MetricsMiddleware(BaseHTTPMiddleware):
                 endpoint=endpoint,
                 status_code=500
             ).inc()
-            
+
             duration = time.time() - start_time
             REQUEST_DURATION.labels(
                 method=method,
                 endpoint=endpoint
             ).observe(duration)
-            
+
             logger.error(f"Request failed: {endpoint} - {str(e)}")
             raise
-            
+
         finally:
             # Decrement active connections
             ACTIVE_CONNECTIONS.dec()
 
 class AdvancedMonitoring:
     """Advanced monitoring and analytics system"""
-    
+
     def __init__(self):
         self.start_time = datetime.utcnow()
         self.request_logs = []
         self.error_logs = []
-        
+
     def collect_system_metrics(self) -> Dict[str, Any]:
         """Collect system performance metrics"""
         try:
             # CPU Usage
             cpu_percent = psutil.cpu_percent(interval=1)
             SYSTEM_METRICS.labels(resource_type='cpu_percent').set(cpu_percent)
-            
+
             # Memory Usage
             memory = psutil.virtual_memory()
             SYSTEM_METRICS.labels(resource_type='memory_percent').set(memory.percent)
             SYSTEM_METRICS.labels(resource_type='memory_available_gb').set(memory.available / (1024**3))
-            
+
             # Disk Usage
             disk = psutil.disk_usage('/')
             disk_percent = (disk.used / disk.total) * 100
             SYSTEM_METRICS.labels(resource_type='disk_percent').set(disk_percent)
-            
+
             # Network I/O
             network = psutil.net_io_counters()
             SYSTEM_METRICS.labels(resource_type='network_bytes_sent').set(network.bytes_sent)
             SYSTEM_METRICS.labels(resource_type='network_bytes_recv').set(network.bytes_recv)
-            
+
             return {
                 'cpu_percent': cpu_percent,
                 'memory_percent': memory.percent,
@@ -156,36 +156,36 @@ class AdvancedMonitoring:
                 'network_bytes_recv': network.bytes_recv,
                 'timestamp': datetime.utcnow().isoformat()
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to collect system metrics: {e}")
             return {}
-    
+
     def collect_database_metrics(self) -> Dict[str, Any]:
         """Collect database performance metrics"""
         try:
             db = SessionLocal()
-            
+
             # Count active sessions (approximate)
             active_connections = len(db.get_bind().pool.checkedin()) + len(db.get_bind().pool.checkedout())
             DATABASE_CONNECTIONS.set(active_connections)
-            
+
             # Get table row counts
             user_count = db.query(User).count()
             job_count = db.query(Job).count()
             application_count = db.query(JobApplication).count()
-            
+
             # Recent activity
             recent_jobs = db.query(Job).filter(
                 Job.scraped_at >= datetime.utcnow() - timedelta(hours=24)
             ).count()
-            
+
             recent_applications = db.query(JobApplication).filter(
                 JobApplication.applied_at >= datetime.utcnow() - timedelta(hours=24)
             ).count()
-            
+
             db.close()
-            
+
             return {
                 'active_connections': active_connections,
                 'total_users': user_count,
@@ -195,16 +195,16 @@ class AdvancedMonitoring:
                 'applications_last_24h': recent_applications,
                 'timestamp': datetime.utcnow().isoformat()
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to collect database metrics: {e}")
             return {}
-    
+
     def collect_application_metrics(self) -> Dict[str, Any]:
         """Collect application-specific metrics"""
         try:
             uptime = datetime.utcnow() - self.start_time
-            
+
             return {
                 'uptime_seconds': uptime.total_seconds(),
                 'uptime_hours': uptime.total_seconds() / 3600,
@@ -219,11 +219,11 @@ class AdvancedMonitoring:
                     if log['timestamp'] >= datetime.utcnow() - timedelta(hours=1)
                 ])
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to collect application metrics: {e}")
             return {}
-    
+
     def log_request(self, request: Request, response: Response, duration: float):
         """Log request details for analytics"""
         log_entry = {
@@ -235,13 +235,13 @@ class AdvancedMonitoring:
             'user_agent': request.headers.get('user-agent', ''),
             'ip_address': request.client.host if request.client else 'unknown'
         }
-        
+
         self.request_logs.append(log_entry)
-        
+
         # Keep only last 1000 requests in memory
         if len(self.request_logs) > 1000:
             self.request_logs = self.request_logs[-1000:]
-    
+
     def log_error(self, error: Exception, context: Dict[str, Any] = None):
         """Log error details for monitoring"""
         error_entry = {
@@ -250,35 +250,35 @@ class AdvancedMonitoring:
             'error_message': str(error),
             'context': context or {}
         }
-        
+
         self.error_logs.append(error_entry)
-        
+
         # Keep only last 500 errors in memory
         if len(self.error_logs) > 500:
             self.error_logs = self.error_logs[-500:]
-        
+
         logger.error(f"Error logged: {error_entry}")
-    
+
     def get_health_status(self) -> Dict[str, Any]:
         """Get comprehensive health status"""
         try:
             system_metrics = self.collect_system_metrics()
             db_metrics = self.collect_database_metrics()
             app_metrics = self.collect_application_metrics()
-            
+
             # Determine overall health
             health_status = "healthy"
-            
+
             # Check critical thresholds
             if system_metrics.get('cpu_percent', 0) > 90:
                 health_status = "degraded"
-            
+
             if system_metrics.get('memory_percent', 0) > 90:
                 health_status = "degraded"
-            
+
             if len(self.error_logs) > 10:  # More than 10 recent errors
                 health_status = "degraded"
-            
+
             return {
                 'status': health_status,
                 'timestamp': datetime.utcnow().isoformat(),
@@ -291,7 +291,7 @@ class AdvancedMonitoring:
                     'error_rate': 'healthy' if len(self.error_logs) < 10 else 'degraded'
                 }
             }
-            
+
         except Exception as e:
             logger.error(f"Health check failed: {e}")
             return {
@@ -299,7 +299,7 @@ class AdvancedMonitoring:
                 'error': str(e),
                 'timestamp': datetime.utcnow().isoformat()
             }
-    
+
     def get_performance_report(self) -> Dict[str, Any]:
         """Generate comprehensive performance report"""
         try:
@@ -307,30 +307,30 @@ class AdvancedMonitoring:
                 log for log in self.request_logs
                 if log['timestamp'] >= datetime.utcnow() - timedelta(hours=1)
             ]
-            
+
             if not recent_requests:
                 return {'message': 'No recent requests'}
-            
+
             # Calculate statistics
             durations = [req['duration'] for req in recent_requests]
             avg_duration = sum(durations) / len(durations)
             max_duration = max(durations)
             min_duration = min(durations)
-            
+
             # Status code distribution
             status_codes = {}
             for req in recent_requests:
                 code = req['status_code']
                 status_codes[code] = status_codes.get(code, 0) + 1
-            
+
             # Most accessed endpoints
             endpoints = {}
             for req in recent_requests:
                 endpoint = req['url']
                 endpoints[endpoint] = endpoints.get(endpoint, 0) + 1
-            
+
             top_endpoints = sorted(endpoints.items(), key=lambda x: x[1], reverse=True)[:10]
-            
+
             return {
                 'period': 'last_hour',
                 'total_requests': len(recent_requests),
@@ -341,7 +341,7 @@ class AdvancedMonitoring:
                 'top_endpoints': top_endpoints,
                 'timestamp': datetime.utcnow().isoformat()
             }
-            
+
         except Exception as e:
             logger.error(f"Performance report generation failed: {e}")
             return {'error': str(e)}

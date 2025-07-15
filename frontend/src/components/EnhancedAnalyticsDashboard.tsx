@@ -2,7 +2,7 @@
 // This component provides comprehensive analytics with real-time updates
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useAuth } from './AuthContext';
+import { useAuth } from '../context/AuthContext';
 import axiosInstance from '../utils/axiosInstance';
 import { toast } from 'react-toastify';
 

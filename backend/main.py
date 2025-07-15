@@ -1,17 +1,23 @@
+import tempfile
+import os
+import secrets
+import smtplib
+import json
+import logging
+import re
+import time
+import random
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from pathlib import Path
-from fastapi import FastAPI, File, UploadFile, Depends
+from fastapi import FastAPI, File, UploadFile, Depends, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from fastapi import HTTPException, status
 from pydantic import BaseModel
 from auth import authenticate_user, create_access_token
-import tempfile
-import secrets
-import smtplib
 from email.message import EmailMessage
-import os
-import json
+from sqlalchemy.orm import Session
 
 from resume_parser import parse_resume
 from jd_matcher import match_jd
@@ -19,13 +25,12 @@ from cover_letter_generator import generate_cover_letter
 from user_profile import extract_user_info
 from typing import List, Dict, Optional
 from resume_storage import upload_resume_to_s3, add_resume, load_user_resumes, get_primary_resume
-from db import SessionLocal
-from models import Resume, User, Job, JobApplication
+from db import SessionLocal, engine, Base
+from models import Resume, User, Job, JobApplication, JobPortalCredential, QuestionnaireAnswer, AutomationSetting
 from passlib.context import CryptContext
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
-import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Background job processing
 from job_manager import job_manager
@@ -38,13 +43,13 @@ from glassdoor_integration import glassdoor_scraper
 from anti_detection import EnhancedAutoApplier, anti_detection_manager
 from enhanced_profile import EnhancedProfileService, EnhancedUserProfile, UserProfileCreate, UserProfileUpdate, UserProfileResponse
 from fastapi import WebSocket, WebSocketDisconnect
+from automation_scheduler import start_automation_scheduler, stop_automation_scheduler
+from automation_engine import automation_engine, get_automation_status
 
 # Load environment variables
 load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env")
 
 # Create database tables
-from db import engine, Base
-from models import User, Resume
 Base.metadata.create_all(bind=engine)
 
 # Initialize FastAPI app
@@ -107,32 +112,202 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-# Endpoint: Upload Resume and extract user info
-@app.post("/upload-resume")
-async def upload_resume(file: UploadFile = File(...), user_id: str = Depends(get_current_user)):
-    suffix = "." + file.filename.split(".")[-1] if "." in file.filename else ""
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(await file.read())
-        tmp_path = tmp.name
+def get_current_user_full(token: str = Depends(oauth2_scheme)):
+    """Get full user data including profile info"""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("user_id")
+        if user_id is None:
+            raise HTTPException(status_code=401, detail="Invalid token")
 
-    resume_txt = parse_resume(tmp_path)
-    user_info = extract_user_info(resume_txt)
-    s3_url = upload_resume_to_s3(tmp_path, file.filename, user_id)
+        # Get full user data from database
+        db = SessionLocal()
+        try:
+            user = db.query(User).filter(User.id == user_id).first()
+            if not user:
+                raise HTTPException(status_code=401, detail="User not found")
+            return {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "created_at": user.id  # Use id as placeholder for created_at if no field exists
+            }
+        finally:
+            db.close()
 
-    # Store resume metadata in DB
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+# Database dependency
+def get_db():
     db = SessionLocal()
-    db_resume = Resume(filename=file.filename, s3_url=s3_url, user_id=user_id)
-    db.add(db_resume)
-    db.commit()
-    db.refresh(db_resume)
-    db.close()
+    try:
+        yield db
+    finally:
+        db.close()
 
-    return {
-        "resume_text": resume_txt[:1000],
-        "user_info": user_info,
-        "resume_url": s3_url,
-        "db_id": db_resume.id
-    }
+# Endpoint: Upload Resume and extract user info
+@app.options("/upload-resume")
+async def upload_resume_options():
+    return {"message": "OK"}
+
+@app.post("/upload-resume")
+async def upload_resume(file: UploadFile = File(...), current_user_id: int = Depends(get_current_user)):
+    try:
+        # Check user's resume count
+        db = SessionLocal()
+        try:
+            resume_count = db.query(Resume).filter(Resume.user_id == current_user_id).count()
+            if resume_count >= 5:
+                raise HTTPException(status_code=400, detail="Maximum 5 resumes allowed per user")
+
+            # Read file content
+            file_content = await file.read()
+            file_size = len(file_content)
+
+            # Save to temporary file for parsing
+            suffix = "." + file.filename.split(".")[-1] if "." in file.filename else ""
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                tmp.write(file_content)
+                tmp_path = tmp.name
+
+            # Parse resume with AI analysis
+            try:
+                from ai_resume_analyzer import resume_analyzer
+                parsed_data = resume_analyzer.parse_resume(tmp_path)
+
+                # Extract user info for backward compatibility
+                user_info = {
+                    'name': parsed_data.get('name', ''),
+                    'email': parsed_data.get('email', ''),
+                    'phone': parsed_data.get('phone', ''),
+                    'skills': parsed_data.get('skills', []),
+                    'summary': parsed_data.get('summary', ''),
+                    'experience': parsed_data.get('experience', []),
+                    'education': parsed_data.get('education', [])
+                }
+            except Exception as e:
+                print(f"AI Resume parsing error: {e}")
+                # Fallback to basic parsing
+                try:
+                    parsed_data = parse_resume(tmp_path)
+                    user_info = extract_user_info(parsed_data) if parsed_data else {}
+                except Exception as e2:
+                    print(f"Basic parsing error: {e2}")
+                    parsed_data = {"error": str(e), "fallback_error": str(e2)}
+                    user_info = {}
+
+            # Upload to S3 (mock for now)
+            try:
+                s3_url = upload_resume_to_s3(tmp_path, file.filename, str(current_user_id))
+            except Exception as e:
+                print(f"S3 upload error: {e}")
+                s3_url = f"local://uploads/{file.filename}"
+
+            # Check if this should be primary (first resume)
+            is_primary = resume_count == 0
+
+            # Store resume metadata in DB
+            db_resume = Resume(
+                filename=file.filename,
+                s3_url=s3_url,
+                user_id=current_user_id,
+                is_primary=is_primary,
+                parsed_data=parsed_data,
+                file_size=file_size
+            )
+            db.add(db_resume)
+            db.commit()
+            db.refresh(db_resume)
+
+            # Clean up temp file
+            import os
+            os.unlink(tmp_path)
+
+            return {
+                "message": "Resume uploaded successfully",
+                "user_info": user_info,
+                "resume_url": s3_url,
+                "db_id": db_resume.id,
+                "parsed_data": parsed_data
+            }
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Upload resume error: {e}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+# Get all resumes for current user
+@app.get("/resumes")
+async def get_resumes(current_user_id: int = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        resumes = db.query(Resume).filter(Resume.user_id == current_user_id).order_by(Resume.uploaded_at.desc()).all()
+
+        result = []
+        for resume in resumes:
+            result.append({
+                "id": str(resume.id),
+                "name": resume.filename,
+                "uploadDate": resume.uploaded_at.isoformat(),
+                "isPrimary": resume.is_primary,
+                "size": f"{(resume.file_size / 1024):.1f} KB" if resume.file_size else "Unknown",
+                "parsedData": resume.parsed_data
+            })
+
+        return result
+    finally:
+        db.close()
+
+# Set primary resume
+@app.post("/resumes/{resume_id}/set-primary")
+async def set_primary_resume(resume_id: int, current_user_id: int = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        # Verify resume belongs to user
+        resume = db.query(Resume).filter(Resume.id == resume_id, Resume.user_id == current_user_id).first()
+        if not resume:
+            raise HTTPException(status_code=404, detail="Resume not found")
+
+        # Set all resumes to non-primary
+        db.query(Resume).filter(Resume.user_id == current_user_id).update({"is_primary": False})
+
+        # Set selected resume as primary
+        resume.is_primary = True
+        db.commit()
+
+        return {"message": "Primary resume updated"}
+    finally:
+        db.close()
+
+# Delete resume
+@app.delete("/resumes/{resume_id}")
+async def delete_resume(resume_id: int, current_user_id: int = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        # Verify resume belongs to user
+        resume = db.query(Resume).filter(Resume.id == resume_id, Resume.user_id == current_user_id).first()
+        if not resume:
+            raise HTTPException(status_code=404, detail="Resume not found")
+
+        was_primary = resume.is_primary
+        db.delete(resume)
+        db.commit()
+
+        # If deleted resume was primary, set first available as primary
+        if was_primary:
+            first_resume = db.query(Resume).filter(Resume.user_id == current_user_id).first()
+            if first_resume:
+                first_resume.is_primary = True
+                db.commit()
+
+        return {"message": "Resume deleted successfully"}
+    finally:
+        db.close()
 
 # Pydantic model for matching request
 class MatchInput(BaseModel):
@@ -164,14 +339,42 @@ class LoginInput(BaseModel):
     password: str
 
 @app.post("/login")
-async def login(input: LoginInput):
+async def login(username: str = Form(...), password: str = Form(...)):
     db = SessionLocal()
-    user = db.query(User).filter(User.username == input.username).first()
-    db.close()
-    if not user or not pwd_context.verify(input.password, user.hashed_password):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-    token = create_access_token({"sub": user.username, "user_id": user.id})
-    return {"access_token": token, "token_type": "bearer", "user_id": user.id, "username": user.username}
+    try:
+        # Check if username is email or username
+        if "@" in username:
+            user = db.query(User).filter(User.email == username).first()
+        else:
+            user = db.query(User).filter(User.username == username).first()
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid email/username or password"
+            )
+
+        if not pwd_context.verify(password, user.hashed_password):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid email/username or password"
+            )
+
+        token = create_access_token({"sub": user.username, "user_id": user.id})
+        return {
+            "access_token": token,
+            "token_type": "bearer",
+            "user_id": user.id,
+            "username": user.username,
+            "email": user.email
+        }
+    finally:
+        db.close()
+
+@app.post("/token")
+async def login_for_access_token(username: str = Form(...), password: str = Form(...)):
+    """OAuth2 compatible token login endpoint"""
+    return await login(username, password)
 
 # Real job automation integration
 from job_scraper import JobBoardScraper
@@ -423,26 +626,142 @@ async def apply_multiple_jobs_endpoint(jobs_list: List[str], user_profile: Dict,
         raise HTTPException(status_code=500, detail=f"Batch application failed: {str(e)}")
 
 @app.get('/application-stats')
-async def application_stats(user_id: str = Depends(get_current_user)):
-    # Mock statistics
-    stats = JobApplicationStats(applied=12, denied=3, interviewed=2)
-    return stats.dict()
+async def get_application_stats(user_id: int = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        print(f"Fetching stats for user_id: {user_id}")
+        # Count applications by status
+        applications = db.query(JobApplication).filter(JobApplication.user_id == user_id).all()
+        print(f"Found {len(applications)} applications for user {user_id}")
+
+        applied = len(applications)
+        interviewed = len([app for app in applications if app.status in ['interview_scheduled', 'interviewed']])
+        denied = len([app for app in applications if app.status in ['rejected', 'declined']])
+        success_rate = round((interviewed / applied * 100) if applied > 0 else 0, 1)
+
+        result = {
+            "applied": applied,
+            "interviewed": interviewed,
+            "denied": denied,
+            "success_rate": success_rate
+        }
+        print(f"Returning stats: {result}")
+        return result
+    except Exception as e:
+        print(f"Stats error: {e}")
+        return {
+            "applied": 0,
+            "interviewed": 0,
+            "denied": 0,
+            "success_rate": 0
+        }
+    finally:
+        db.close()
+
+@app.get('/api/analytics/dashboard')
+async def get_analytics_dashboard(user_id: int = Depends(get_current_user)):
+    """Get comprehensive analytics dashboard data"""
+    db = SessionLocal()
+    try:
+        # Import analytics engine here to avoid circular imports
+        from analytics_engine import AnalyticsEngine
+
+        analytics = AnalyticsEngine(db)
+        dashboard_data = analytics.get_user_dashboard_data(user_id)
+
+        return dashboard_data
+    except Exception as e:
+        logger.error(f"Error getting analytics dashboard: {e}")
+        # Return mock data as fallback
+        from analytics_engine import AnalyticsEngine
+        analytics = AnalyticsEngine(db)
+        return analytics.get_mock_dashboard_data()
+    finally:
+        db.close()
+
+@app.get('/api/mentor/guidance')
+async def get_mentor_guidance(user_id: int = Depends(get_current_user)):
+    """Get personalized mentor guidance"""
+    db = SessionLocal()
+    try:
+        from mentor_bot import MentorBot
+
+        mentor = MentorBot(db)
+        guidance = mentor.get_personalized_guidance(user_id)
+
+        return guidance
+    except Exception as e:
+        logger.error(f"Error getting mentor guidance: {e}")
+        return {
+            "animal_mentor": "Dolphin",
+            "message": "Keep up the great work! Your job search is on track.",
+            "tips": ["Focus on quality over quantity", "Network with industry professionals"],
+            "motivation": "Every application is a step closer to your dream job!"
+        }
+    finally:
+        db.close()
+
+@app.post('/api/automation/smart-apply')
+async def smart_auto_apply(user_id: int = Depends(get_current_user)):
+    """Start smart auto-application process"""
+    db = SessionLocal()
+    try:
+        from smart_auto_applier import SmartAutoApplier
+
+        auto_applier = SmartAutoApplier(db)
+        result = await auto_applier.start_smart_application_process(user_id)
+
+        return {"message": "Smart auto-application started", "details": result}
+    except Exception as e:
+        logger.error(f"Error starting smart auto-apply: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to start smart auto-apply: {str(e)}")
+    finally:
+        db.close()
 
 class RegisterInput(BaseModel):
-    username: str
     email: str
     password: str
+    full_name: str
+    username: str = None  # Optional username field
 
 @app.post("/register")
 async def register(input: RegisterInput):
     db = SessionLocal()
     try:
-        existing_user = db.query(User).filter((User.username == input.username) | (User.email == input.email)).first()
+        existing_user = db.query(User).filter(User.email == input.email).first()
         if existing_user:
-            raise HTTPException(status_code=400, detail="Username or email already exists")
+            raise HTTPException(status_code=400, detail="Email already exists")
+
+        # Check if username is provided and unique
+        if input.username:
+            existing_username = db.query(User).filter(User.username == input.username).first()
+            if existing_username:
+                raise HTTPException(status_code=400, detail="Username already exists")
+            username = input.username
+        else:
+            # Use email as username if no username provided
+            username = input.email.split('@')[0]  # Extract username from email
+            # Check if auto-generated username exists and make it unique
+            base_username = username
+            counter = 1
+            while db.query(User).filter(User.username == username).first():
+                username = f"{base_username}{counter}"
+                counter += 1
 
         hashed_password = pwd_context.hash(input.password)
-        user = User(username=input.username, email=input.email, hashed_password=hashed_password)
+
+        # Parse full_name into first_name and last_name
+        name_parts = input.full_name.strip().split()
+        first_name = name_parts[0] if name_parts else ""
+        last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
+
+        user = User(
+            username=username,
+            email=input.email,
+            hashed_password=hashed_password,
+            first_name=first_name,
+            last_name=last_name
+        )
         db.add(user)
         db.commit()
         db.refresh(user)
@@ -517,18 +836,18 @@ class UserProfileUpdate(BaseModel):
     # Add more fields as needed
 
 @app.get("/profile")
-async def get_profile(user_id: int = Depends(get_current_user)):
+async def get_profile(current_user_id: int = Depends(get_current_user)):
     db = SessionLocal()
-    user = db.query(User).filter(User.id == user_id).first()
+    user = db.query(User).filter(User.id == current_user_id).first()
     db.close()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return {"id": user.id, "username": user.username, "email": user.email}
 
 @app.put("/profile")
-async def update_profile(update: UserProfileUpdate, user_id: int = Depends(get_current_user)):
+async def update_profile(update: UserProfileUpdate, current_user_id: int = Depends(get_current_user)):
     db = SessionLocal()
-    user = db.query(User).filter(User.id == user_id).first()
+    user = db.query(User).filter(User.id == current_user_id).first()
     if not user:
         db.close()
         raise HTTPException(status_code=404, detail="User not found")
@@ -986,389 +1305,38 @@ async def check_profile_completeness(user_id: int = Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Add missing endpoints for system tests
-
-@app.get("/jobs/search/{task_id}/status")
-async def get_job_search_status(task_id: str, user_id: int = Depends(get_current_user)):
-    """
-    Get status of a job search task
-    """
+# Debug endpoint to create test applications (remove in production)
+@app.post('/create-test-applications')
+async def create_test_applications(user_id: int = Depends(get_current_user)):
+    db = SessionLocal()
     try:
-        status = job_manager.get_task_status(task_id)
-        return status
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/jobs/background/status")
-async def get_background_job_status(user_id: int = Depends(get_current_user)):
-    """
-    Get status of all background jobs
-    """
-    try:
-        active_tasks = job_manager.get_active_tasks()
-        return {
-            'active_jobs': len(active_tasks),
-            'tasks': active_tasks,
-            'user_id': user_id
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/companies/{company_name}/insights")
-async def get_company_insights(company_name: str, user_id: int = Depends(get_current_user)):
-    """
-    Get company insights from Glassdoor
-    """
-    try:
-        insights = await glassdoor_scraper.get_company_insights(company_name)
-        return {
-            'company_name': company_name,
-            'insights': insights,
-            'timestamp': datetime.now().isoformat()
-        }
-    except Exception as e:
-        # Return mock data for testing if scraping fails
-        return {
-            'company_name': company_name,
-            'insights': {
-                'rating': 4.2,
-                'reviews_count': 1250,
-                'salary_range': '$120k - $180k',
-                'pros': ['Great work-life balance', 'Innovative projects'],
-                'cons': ['Limited remote work', 'Competitive environment']
-            },
-            'timestamp': datetime.now().isoformat(),
-            'note': 'Mock data - Glassdoor integration pending'
-        }
-
-# Enhanced Job Application with Anti-Detection
-@app.post("/jobs/apply-enhanced")
-async def apply_to_job_enhanced(
-    request: JobApplicationRequest,
-    user_id: int = Depends(get_current_user)
-):
-    """Enhanced job application with anti-detection measures"""
-    try:
-        # Get enhanced user profile
-        db = SessionLocal()
-        profile_service = EnhancedProfileService(db)
-
-        profile_data = profile_service.get_application_data(user_id)
-        if not profile_data:
-            raise HTTPException(status_code=400, detail="Complete your profile before applying")
-
-        # Check profile completeness
-        completeness = profile_service.check_profile_completeness(user_id)
-        if completeness['completion_percentage'] < 80:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Profile only {completeness['completion_percentage']}% complete. Please complete your profile before applying."
-            )
-
-        # Get job details
-        job_info = await get_job_details(request.job_id)
-        if not job_info:
-            raise HTTPException(status_code=404, detail="Job not found")
-
-        # Send start notification
-        await websocket_events.on_application_started(
-            user_id=user_id,
-            job_id=str(request.job_id),
-            job_title=job_info.get('title', 'Unknown'),
-            company=job_info.get('company', 'Unknown'),
-            task_id='direct_application'
+        # Create a fake job first
+        test_job = Job(
+            title="Software Engineer",
+            company="Test Company",
+            location="Remote",
+            description="Test job description",
+            url=f"https://test.com/job/{user_id}",
+            platform="test"
         )
+        db.add(test_job)
+        db.commit()
+        db.refresh(test_job)
 
-        # Generate cover letter if not provided
-        cover_letter = request.cover_letter
-        if not cover_letter and profile_data.get('personal', {}).get('cover_letter_template'):
-            cover_letter = generate_cover_letter(
-                resume_text=request.resume_text or "",
-                job_description=job_info.get('description', ''),
-                company=job_info.get('company', ''),
-                position=job_info.get('title', '')
-            )
+        # Create test applications
+        app1 = JobApplication(user_id=user_id, job_id=test_job.id, status="applied")
+        app2 = JobApplication(user_id=user_id, job_id=test_job.id, status="interview_scheduled")
+        app3 = JobApplication(user_id=user_id, job_id=test_job.id, status="rejected")
 
-        # Create enhanced auto applier with anti-detection
-        auto_applier = EnhancedAutoApplier(profile_data)
+        db.add_all([app1, app2, app3])
+        db.commit()
 
-        try:
-            # Setup stealth browser
-            if not auto_applier.setup_stealth_browser(headless=True):
-                raise HTTPException(status_code=500, detail="Failed to setup browser")
-
-            # Send progress update
-            await websocket_events.on_application_progress(
-                user_id=user_id,
-                job_id=str(request.job_id),
-                step='navigating',
-                message='Navigating to job page...',
-                task_id='direct_application'
-            )
-
-            # Navigate to job page with anti-detection
-            if not await auto_applier.smart_navigate(job_info.get('url', '')):
-                raise HTTPException(status_code=500, detail="Failed to navigate to job page")
-
-            # Send progress update
-            await websocket_events.on_application_progress(
-                user_id=user_id,
-                job_id=str(request.job_id),
-                step='filling_form',
-                message='Filling application form...',
-                task_id='direct_application'
-            )
-
-            # Apply to job with enhanced form filling
-            result = await auto_applier.apply_to_job(job_info, cover_letter)
-
-            # Log application
-            await log_job_application(request.job_id, result)
-
-            # Send completion notification
-            await websocket_events.on_application_completed(
-                user_id=user_id,
-                job_id=str(request.job_id),
-                success=result.get('status') == 'success',
-                message=result.get('message', ''),
-                task_id='direct_application'
-            )
-
-            db.close()
-            return {
-                'status': result.get('status', 'unknown'),
-                'job_id': request.job_id,
-                'message': result.get('message', ''),
-                'application_time': datetime.now().isoformat(),
-                'anti_detection_used': True
-            }
-
-        finally:
-            auto_applier.cleanup()
-
+        return {"message": "Test applications created", "count": 3}
     except Exception as e:
-        logger.error(f"Error in enhanced job application: {str(e)}")
-        await websocket_events.on_error_occurred(
-            user_id=user_id,
-            error_message=str(e),
-            task_id='direct_application'
-        )
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
-
-# Real-time Task Monitoring
-@app.get("/tasks/monitor")
-async def get_task_monitoring_dashboard(user_id: int = Depends(get_current_user)):
-    """Get real-time task monitoring dashboard"""
-    try:
-        active_tasks = job_manager.get_user_active_tasks(user_id)
-
-        task_details = []
-        for task_id in active_tasks:
-            status = job_manager.get_task_status(task_id)
-            task_details.append({
-                'task_id': task_id,
-                'status': status.get('status'),
-                'progress': status.get('progress', 0),
-                'started_at': status.get('started_at'),
-                'type': status.get('task_type'),
-                'result': status.get('result')
-            })
-
-        return {
-            'active_tasks': task_details,
-            'websocket_connected': user_id in websocket_manager.get_active_users(),
-            'total_active': len(task_details)
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Analytics Dashboard Enhancement
-@app.get("/analytics/dashboard")
-async def get_enhanced_analytics_dashboard(
-    days_back: int = 30,
-    user_id: int = Depends(get_current_user)
-):
-    """Get comprehensive analytics dashboard"""
-    try:
-        from analytics_engine import AnalyticsEngine
-
-        analytics_engine = AnalyticsEngine()
-
-        # Get user analytics
-        user_metrics = analytics_engine.get_user_analytics(user_id, days_back)
-
-        # Get market insights
-        market_insights = analytics_engine.get_market_insights()
-
-        # Get profile completion
-        db = SessionLocal()
-        profile_service = EnhancedProfileService(db)
-        completeness = profile_service.check_profile_completeness(user_id)
+    finally:
         db.close()
-
-        dashboard_data = {
-            'user_metrics': {
-                'total_applications': user_metrics.total_applications,
-                'successful_applications': user_metrics.successful_applications,
-                'pending_applications': user_metrics.pending_applications,
-                'failed_applications': user_metrics.failed_applications,
-                'success_rate': user_metrics.success_rate,
-                'avg_response_time': user_metrics.avg_response_time
-            },
-            'top_platforms': user_metrics.top_platforms,
-            'top_companies': user_metrics.top_companies,
-            'skill_demand': user_metrics.skill_demand,
-            'salary_insights': user_metrics.salary_insights,
-            'market_trends': market_insights,
-            'profile_completion': completeness,
-            'period_days': days_back,
-            'generated_at': datetime.now().isoformat()
-        }
-
-        # Send real-time update
-        await websocket_events.on_analytics_updated(user_id, dashboard_data)
-
-        return dashboard_data
-
-    except Exception as e:
-        logger.error(f"Error generating analytics dashboard: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Enhanced Job Search with Real-time Updates
-@app.post("/jobs/search-enhanced")
-async def enhanced_job_search(
-    request: JobSearchRequest,
-    user_id: int = Depends(get_current_user)
-):
-    """Enhanced job search with real-time progress updates"""
-    try:
-        # Start WebSocket notifications
-        await websocket_events.on_job_search_started(
-            user_id=user_id,
-            search_params=request.dict(),
-            task_id='enhanced_search'
-        )
-
-        # Extract keywords from user profile if not provided
-        keywords = request.keywords
-        if not keywords:
-            db = SessionLocal()
-            profile_service = EnhancedProfileService(db)
-            profile_data = profile_service.get_application_data(user_id)
-            db.close()
-
-            if profile_data and profile_data.get('skills', {}).get('technical'):
-                keywords = ', '.join(profile_data['skills']['technical'][:5])
-            else:
-                keywords = 'software engineer'  # Default
-
-        logger.info(f"Enhanced search for keywords: {keywords}, location: {request.location}")
-
-        # Search with progress updates
-        all_jobs = []
-        platforms = ['indeed', 'dice', 'remoteok']
-
-        for i, platform in enumerate(platforms):
-            # Send progress update
-            await websocket_events.on_job_search_progress(
-                user_id=user_id,
-                platform=platform,
-                found_count=len(all_jobs),
-                total_expected=request.limit,
-                task_id='enhanced_search'
-            )
-
-            try:
-                if platform == "indeed":
-                    jobs = await job_scraper.scrape_indeed_async(keywords, request.location, 20)
-                elif platform == "dice":
-                    jobs = await job_scraper.scrape_dice_async(keywords, request.location, 20)
-                elif platform == "remoteok":
-                    jobs = await job_scraper.scrape_remote_ok_async(keywords, request.location, 20)
-
-                all_jobs.extend(jobs)
-
-                # Update progress
-                await websocket_events.on_job_search_progress(
-                    user_id=user_id,
-                    platform=platform,
-                    found_count=len(all_jobs),
-                    total_expected=request.limit,
-                    task_id='enhanced_search'
-                )
-
-            except Exception as e:
-                logger.error(f"Error searching {platform}: {str(e)}")
-                continue
-
-        # Remove duplicates and apply AI matching
-        unique_jobs = job_scraper._remove_duplicates(all_jobs)
-
-        # Get user profile for matching
-        db = SessionLocal()
-        profile_service = EnhancedProfileService(db)
-        profile_data = profile_service.get_application_data(user_id)
-        db.close()
-
-        # Apply AI matching if profile exists
-        if profile_data:
-            user_skills = profile_data.get('skills', {}).get('technical', [])
-            user_experience = profile_data.get('professional', {}).get('years_experience', 0)
-
-            for job in unique_jobs:
-                try:
-                    # Simple matching score based on skills overlap
-                    job_desc = job.get('description', '').lower()
-                    skill_matches = sum(1 for skill in user_skills if skill.lower() in job_desc)
-                    match_score = min(100, (skill_matches / max(len(user_skills), 1)) * 100)
-                    job['match_score'] = match_score
-                    job['recommended'] = match_score > 60
-                except Exception:
-                    job['match_score'] = 50
-                    job['recommended'] = False
-
-        # Sort by match score
-        if profile_data:
-            unique_jobs.sort(key=lambda x: x.get('match_score', 0), reverse=True)
-
-        # Limit results
-        final_jobs = unique_jobs[:request.limit]
-
-        # Cache results
-        job_cache[f"search_{user_id}_{datetime.now().strftime('%Y%m%d_%H%M')}"] = final_jobs
-
-        # Send completion notification
-        await websocket_events.on_job_search_completed(
-            user_id=user_id,
-            results=final_jobs,
-            task_id='enhanced_search'
-        )
-
-        return {
-            'success': True,
-            'total_jobs': len(final_jobs),
-            'jobs': final_jobs,
-            'search_params': {
-                'keywords': keywords,
-                'location': request.location,
-                'platforms_searched': platforms
-            },
-            'enhanced_features': {
-                'ai_matching_applied': bool(profile_data),
-                'real_time_updates': True,
-                'company_insights_available': True
-            }
-        }
-
-    except Exception as e:
-        logger.error(f"Error in enhanced job search: {str(e)}")
-        await websocket_events.on_error_occurred(
-            user_id=user_id,
-            error_message=str(e),
-            task_id='enhanced_search'
-        )
-        raise HTTPException(status_code=500, detail=str(e))
 
 # System Health and Monitoring
 @app.get("/system/health")
@@ -1431,7 +1399,771 @@ async def startup_event():
     try:
         await start_websocket_heartbeat()
         logger.info("WebSocket heartbeat service started")
-    except Exception as e:
-        logger.error(f"Failed to start WebSocket heartbeat: {str(e)}")
 
-# ...existing endpoints...
+        # Start automation scheduler
+        start_automation_scheduler()
+        logger.info("Automation scheduler started")
+    except Exception as e:
+        logger.error(f"Failed to start background services: {str(e)}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup background services on shutdown"""
+    try:
+        stop_automation_scheduler()
+        logger.info("Automation scheduler stopped")
+    except Exception as e:
+        logger.error(f"Error during shutdown: {str(e)}")
+
+# Job Portal Credentials Models and Endpoints
+class JobPortalCredentialCreate(BaseModel):
+    platform: str
+    username: str
+    password: str
+    additional_data: Optional[Dict] = {}
+
+class JobPortalCredentialResponse(BaseModel):
+    id: int
+    platform: str
+    username: str
+    is_active: bool
+    created_at: datetime
+    last_used: Optional[datetime] = None
+
+class JobPortalCredentialUpdate(BaseModel):
+    username: Optional[str] = None
+    password: Optional[str] = None
+    additional_data: Optional[Dict] = None
+    is_active: Optional[bool] = None
+
+# Questionnaire Models and Endpoints
+class StandardizedQuestion(BaseModel):
+    key: str
+    text: str
+    type: str = "text"
+
+STANDARDIZED_QUESTIONS = [
+    StandardizedQuestion(key="firstName", text="What is your first name?", type="text"),
+    StandardizedQuestion(key="middleName", text="What is your middle name?", type="text"),
+    StandardizedQuestion(key="lastName", text="What is your last name?", type="text"),
+    StandardizedQuestion(key="preferredFirstName", text="Preferred first name (if different)?", type="text"),
+    StandardizedQuestion(key="email", text="What is your email address?", type="text"),
+    StandardizedQuestion(key="username", text="Choose a username for job portals", type="text"),
+    StandardizedQuestion(key="phone", text="What is your phone number?", type="text"),
+    StandardizedQuestion(key="address", text="What is your current address?", type="text"),
+    StandardizedQuestion(key="profilePicture", text="Upload a profile picture (optional)", type="file"),
+    StandardizedQuestion(key="workAuth", text="Are you authorized to work in your country?", type="boolean"),
+    StandardizedQuestion(key="visaStatus", text="What is your visa status?", type="text"),
+    StandardizedQuestion(key="needSponsorship", text="Do you need sponsorship?", type="boolean"),
+    StandardizedQuestion(key="race", text="What is your race/ethnicity?", type="select"),
+    StandardizedQuestion(key="veteranStatus", text="Are you a veteran or have veteran service?", type="boolean"),
+    StandardizedQuestion(key="disabilityStatus", text="Do you have a disability?", type="boolean"),
+    StandardizedQuestion(key="relocate", text="Are you willing to relocate?", type="boolean"),
+    StandardizedQuestion(key="salaryExpectation", text="What is your expected salary?", type="number"),
+    StandardizedQuestion(key="skills", text="List your top skills", type="text"),
+    StandardizedQuestion(key="experienceYears", text="How many years of experience do you have?", type="number"),
+    StandardizedQuestion(key="linkedinUrl", text="Your LinkedIn profile URL", type="text"),
+    StandardizedQuestion(key="certifications", text="Add certifications (if not in resume)", type="text"),
+    StandardizedQuestion(key="education", text="Add education details (if not in resume)", type="text"),
+]
+
+class QuestionnaireAnswerCreate(BaseModel):
+    question_key: str
+    question_text: str
+    answer: str
+    question_type: str = "text"
+
+class QuestionnaireAnswerResponse(BaseModel):
+    id: int
+    question_key: str
+    question_text: str
+    answer: str
+    question_type: str
+    created_at: datetime
+    updated_at: datetime
+
+class QuestionnaireAnswerUpdate(BaseModel):
+    answer: str
+
+# Automation Settings Models and Endpoints
+class AutomationSettingCreate(BaseModel):
+    max_applications_per_day: int = 10
+    match_threshold: float = 0.7
+    enabled_platforms: List[str] = []
+    preferred_locations: List[str] = []
+    salary_range_min: Optional[int] = None
+    salary_range_max: Optional[int] = None
+    job_types: List[str] = []
+    experience_levels: List[str] = []
+    keywords_include: List[str] = []
+    keywords_exclude: List[str] = []
+    is_active: bool = True
+    schedule_enabled: bool = False
+    schedule_start_time: Optional[str] = None
+    schedule_end_time: Optional[str] = None
+    schedule_days: List[str] = []
+
+class AutomationSettingResponse(BaseModel):
+    id: int
+    max_applications_per_day: int
+    match_threshold: float
+    enabled_platforms: List[str]
+    preferred_locations: List[str]
+    salary_range_min: Optional[int]
+    salary_range_max: Optional[int]
+    job_types: List[str]
+    experience_levels: List[str]
+    keywords_include: List[str]
+    keywords_exclude: List[str]
+    is_active: bool
+    schedule_enabled: bool
+    schedule_start_time: Optional[str]
+    schedule_end_time: Optional[str]
+    schedule_days: List[str]
+    created_at: datetime
+    updated_at: datetime
+
+# Import credential encryption
+from credential_encryption import credential_encryption
+
+# Job Portal Credentials Endpoints
+@app.post("/job-portal-credentials", response_model=JobPortalCredentialResponse)
+async def create_job_portal_credential(
+    credential_data: JobPortalCredentialCreate,
+    current_user_id: int = Depends(get_current_user)
+):
+    """Create new job portal credentials"""
+    try:
+        db = SessionLocal()
+
+        # Check if credentials already exist for this platform
+        existing = db.query(JobPortalCredential).filter(
+            JobPortalCredential.user_id == current_user_id,
+            JobPortalCredential.platform == credential_data.platform
+        ).first()
+
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Credentials for {credential_data.platform} already exist"
+            )
+
+        # Encrypt password
+        encrypted_password = credential_encryption.encrypt_password(credential_data.password)
+
+        # Create new credential
+        credential = JobPortalCredential(
+            user_id=current_user_id,
+            platform=credential_data.platform,
+            username=credential_data.username,
+            encrypted_password=encrypted_password,
+            additional_data=credential_data.additional_data
+        )
+
+        db.add(credential)
+        db.commit()
+        db.refresh(credential)
+
+        return JobPortalCredentialResponse(
+            id=credential.id,
+            platform=credential.platform,
+            username=credential.username,
+            is_active=credential.is_active,
+            created_at=credential.created_at,
+            last_used=credential.last_used
+        )
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@app.get("/job-portal-credentials", response_model=List[JobPortalCredentialResponse])
+async def get_job_portal_credentials(current_user_id: int = Depends(get_current_user)):
+    """Get all job portal credentials for current user"""
+    try:
+        db = SessionLocal()
+        credentials = db.query(JobPortalCredential).filter(
+            JobPortalCredential.user_id == current_user_id
+        ).all()
+
+        return [
+            JobPortalCredentialResponse(
+                id=cred.id,
+                platform=cred.platform,
+                username=cred.username,
+                is_active=cred.is_active,
+                created_at=cred.created_at,
+                last_used=cred.last_used
+            )
+            for cred in credentials
+        ]
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@app.put("/job-portal-credentials/{credential_id}", response_model=JobPortalCredentialResponse)
+async def update_job_portal_credential(
+    credential_id: int,
+    credential_data: JobPortalCredentialUpdate,
+    current_user_id: int = Depends(get_current_user)
+):
+    """Update job portal credentials"""
+    try:
+        db = SessionLocal()
+        credential = db.query(JobPortalCredential).filter(
+            JobPortalCredential.id == credential_id,
+            JobPortalCredential.user_id == current_user_id
+        ).first()
+
+        if not credential:
+            raise HTTPException(status_code=404, detail="Credential not found")
+
+        # Update fields
+        if credential_data.username is not None:
+            credential.username = credential_data.username
+        if credential_data.password is not None:
+            credential.encrypted_password = credential_encryption.encrypt_password(credential_data.password)
+        if credential_data.additional_data is not None:
+            credential.additional_data = credential_data.additional_data
+        if credential_data.is_active is not None:
+            credential.is_active = credential_data.is_active
+
+        db.commit()
+        db.refresh(credential)
+
+        return JobPortalCredentialResponse(
+            id=credential.id,
+            platform=credential.platform,
+            username=credential.username,
+            is_active=credential.is_active,
+            created_at=credential.created_at,
+            last_used=credential.last_used
+        )
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@app.delete("/job-portal-credentials/{credential_id}")
+async def delete_job_portal_credential(
+    credential_id: int,
+    current_user_id: int = Depends(get_current_user)
+):
+    """Delete job portal credentials"""
+    try:
+        db = SessionLocal()
+        credential = db.query(JobPortalCredential).filter(
+            JobPortalCredential.id == credential_id,
+            JobPortalCredential.user_id == current_user_id
+        ).first()
+
+        if not credential:
+            raise HTTPException(status_code=404, detail="Credential not found")
+
+        db.delete(credential)
+        db.commit()
+
+        return {"message": "Credential deleted successfully"}
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+# Questionnaire Endpoints
+from fastapi import Form
+
+# Profile Picture Upload Endpoint
+@app.post("/profile/picture")
+async def upload_profile_picture(file: UploadFile = File(...), user_id: int = Depends(get_current_user)):
+    """Upload profile picture for user"""
+    db = SessionLocal()
+    try:
+        suffix = "." + file.filename.split(".")[-1] if "." in file.filename else ""
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(await file.read())
+            tmp_path = tmp.name
+        # Upload to S3 or local storage (mock for now)
+        s3_url = upload_resume_to_s3(tmp_path, file.filename, str(user_id))
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.profile_picture_url = s3_url
+        db.commit()
+        return {"profile_picture_url": s3_url}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Profile picture upload failed: {str(e)}")
+    finally:
+        db.close()
+
+# Certifications Endpoint
+@app.post("/profile/certifications")
+async def add_certifications(certifications: str = Form(...), user_id: int = Depends(get_current_user)):
+    """Add certifications for user"""
+    db = SessionLocal()
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        db.close()
+        raise HTTPException(status_code=404, detail="User not found")
+    user.certifications = certifications
+    db.commit()
+    db.close()
+    return {"certifications": certifications}
+
+# Education Endpoint
+@app.post("/profile/education")
+async def add_education(education: str = Form(...), user_id: int = Depends(get_current_user)):
+    """Add education details for user"""
+    db = SessionLocal()
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        db.close()
+        raise HTTPException(status_code=404, detail="User not found")
+    user.education = education
+    db.commit()
+    db.close()
+    return {"education": education}
+@app.get("/questionnaire-questions", response_model=List[StandardizedQuestion])
+async def get_standardized_questions():
+    """Get all standardized questions for onboarding and auto-fill"""
+    return STANDARDIZED_QUESTIONS
+@app.post("/questionnaire-answers", response_model=QuestionnaireAnswerResponse)
+async def create_questionnaire_answer(
+    answer_data: QuestionnaireAnswerCreate,
+    current_user: User = Depends(get_current_user)
+):
+    """Create or update questionnaire answer"""
+    try:
+        db = SessionLocal()
+
+        # Check if answer already exists
+        existing = db.query(QuestionnaireAnswer).filter(
+            QuestionnaireAnswer.user_id == current_user.id,
+            QuestionnaireAnswer.question_key == answer_data.question_key
+        ).first()
+
+        if existing:
+            # Update existing answer
+            existing.answer = answer_data.answer
+            existing.updated_at = datetime.utcnow()
+            db.commit()
+            db.refresh(existing)
+            answer = existing
+        else:
+            # Create new answer
+            answer = QuestionnaireAnswer(
+                user_id=current_user.id,
+                question_key=answer_data.question_key,
+                question_text=answer_data.question_text,
+                answer=answer_data.answer,
+                question_type=answer_data.question_type
+            )
+            db.add(answer)
+            db.commit()
+            db.refresh(answer)
+
+        return QuestionnaireAnswerResponse(
+            id=answer.id,
+            question_key=answer.question_key,
+            question_text=answer.question_text,
+            answer=answer.answer,
+            question_type=answer.question_type,
+            created_at=answer.created_at,
+            updated_at=answer.updated_at
+        )
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@app.get("/questionnaire-answers", response_model=List[QuestionnaireAnswerResponse])
+async def get_questionnaire_answers(current_user: User = Depends(get_current_user)):
+    """Get all questionnaire answers for current user"""
+    try:
+        db = SessionLocal()
+        answers = db.query(QuestionnaireAnswer).filter(
+            QuestionnaireAnswer.user_id == current_user.id
+        ).all()
+
+        return [
+            QuestionnaireAnswerResponse(
+                id=answer.id,
+                question_key=answer.question_key,
+                question_text=answer.question_text,
+                answer=answer.answer,
+                question_type=answer.question_type,
+                created_at=answer.created_at,
+                updated_at=answer.updated_at
+            )
+            for answer in answers
+        ]
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@app.put("/questionnaire-answers/{answer_id}", response_model=QuestionnaireAnswerResponse)
+async def update_questionnaire_answer(
+    answer_id: int,
+    answer_data: QuestionnaireAnswerUpdate,
+    current_user: User = Depends(get_current_user)
+):
+    """Update questionnaire answer"""
+    try:
+        db = SessionLocal()
+        answer = db.query(QuestionnaireAnswer).filter(
+            QuestionnaireAnswer.id == answer_id,
+            QuestionnaireAnswer.user_id == current_user.id
+        ).first()
+
+        if not answer:
+            raise HTTPException(status_code=404, detail="Answer not found")
+
+        answer.answer = answer_data.answer
+        answer.updated_at = datetime.utcnow()
+
+        db.commit()
+        db.refresh(answer)
+
+        return QuestionnaireAnswerResponse(
+            id=answer.id,
+            question_key=answer.question_key,
+            question_text=answer.question_text,
+            answer=answer.answer,
+            question_type=answer.question_type,
+            created_at=answer.created_at,
+            updated_at=answer.updated_at
+        )
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+# Automation Settings Endpoints
+@app.post("/automation-settings", response_model=AutomationSettingResponse)
+async def create_automation_settings(
+    settings_data: AutomationSettingCreate,
+    current_user: User = Depends(get_current_user)
+):
+    """Create or update automation settings"""
+    try:
+        db = SessionLocal()
+
+        # Check if settings already exist
+        existing = db.query(AutomationSetting).filter(
+            AutomationSetting.user_id == current_user.id
+        ).first()
+
+        if existing:
+            # Update existing settings
+            for field, value in settings_data.dict().items():
+                setattr(existing, field, value)
+            existing.updated_at = datetime.utcnow()
+            db.commit()
+            db.refresh(existing)
+            settings = existing
+        else:
+            # Create new settings
+            settings = AutomationSetting(
+                user_id=current_user.id,
+                **settings_data.dict()
+            )
+            db.add(settings)
+            db.commit()
+            db.refresh(settings)
+
+        return AutomationSettingResponse(
+            id=settings.id,
+            max_applications_per_day=settings.max_applications_per_day,
+            match_threshold=settings.match_threshold,
+            enabled_platforms=settings.enabled_platforms,
+            preferred_locations=settings.preferred_locations,
+            salary_range_min=settings.salary_range_min,
+            salary_range_max=settings.salary_range_max,
+            job_types=settings.job_types,
+            experience_levels=settings.experience_levels,
+            keywords_include=settings.keywords_include,
+            keywords_exclude=settings.keywords_exclude,
+            is_active=settings.is_active,
+            schedule_enabled=settings.schedule_enabled,
+            schedule_start_time=settings.schedule_start_time,
+            schedule_end_time=settings.schedule_end_time,
+            schedule_days=settings.schedule_days,
+            created_at=settings.created_at,
+            updated_at=settings.updated_at
+        )
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@app.get("/automation-settings", response_model=AutomationSettingResponse)
+async def get_automation_settings(current_user: User = Depends(get_current_user)):
+    """Get automation settings for current user"""
+    try:
+        db = SessionLocal()
+        settings = db.query(AutomationSetting).filter(
+            AutomationSetting.user_id == current_user.id
+        ).first()
+
+        if not settings:
+            raise HTTPException(status_code=404, detail="Automation settings not found")
+
+        return AutomationSettingResponse(
+            id=settings.id,
+            max_applications_per_day=settings.max_applications_per_day,
+            match_threshold=settings.match_threshold,
+            enabled_platforms=settings.enabled_platforms,
+            preferred_locations=settings.preferred_locations,
+            salary_range_min=settings.salary_range_min,
+            salary_range_max=settings.salary_range_max,
+            job_types=settings.job_types,
+            experience_levels=settings.experience_levels,
+            keywords_include=settings.keywords_include,
+            keywords_exclude=settings.keywords_exclude,
+            is_active=settings.is_active,
+            schedule_enabled=settings.schedule_enabled,
+            schedule_start_time=settings.schedule_start_time,
+            schedule_end_time=settings.schedule_end_time,
+            schedule_days=settings.schedule_days,
+            created_at=settings.created_at,
+            updated_at=settings.updated_at
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@app.put("/automation-settings", response_model=AutomationSettingResponse)
+async def update_automation_settings(
+    settings_data: AutomationSettingCreate,
+    current_user: User = Depends(get_current_user)
+):
+    """Update automation settings"""
+    try:
+        db = SessionLocal()
+        settings = db.query(AutomationSetting).filter(
+            AutomationSetting.user_id == current_user.id
+        ).first()
+
+        if not settings:
+            # Create if doesn't exist
+            settings = AutomationSetting(
+                user_id=current_user.id,
+                **settings_data.dict()
+            )
+            db.add(settings)
+        else:
+            # Update existing
+            for field, value in settings_data.dict().items():
+                setattr(settings, field, value)
+            settings.updated_at = datetime.utcnow()
+
+        db.commit()
+        db.refresh(settings)
+
+        return AutomationSettingResponse(
+            id=settings.id,
+            max_applications_per_day=settings.max_applications_per_day,
+            match_threshold=settings.match_threshold,
+            enabled_platforms=settings.enabled_platforms,
+            preferred_locations=settings.preferred_locations,
+            salary_range_min=settings.salary_range_min,
+            salary_range_max=settings.salary_range_max,
+            job_types=settings.job_types,
+            experience_levels=settings.experience_levels,
+            keywords_include=settings.keywords_include,
+            keywords_exclude=settings.keywords_exclude,
+            is_active=settings.is_active,
+            schedule_enabled=settings.schedule_enabled,
+            schedule_start_time=settings.schedule_start_time,
+            schedule_end_time=settings.schedule_end_time,
+            schedule_days=settings.schedule_days,
+            created_at=settings.created_at,
+            updated_at=settings.updated_at
+        )
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+# Start Automation Endpoint
+@app.post("/start-automation")
+async def start_automation(current_user: User = Depends(get_current_user)):
+    """Start the automated job application process"""
+    try:
+        db = SessionLocal()
+
+        # Check if user has automation settings
+        settings = db.query(AutomationSetting).filter(
+            AutomationSetting.user_id == current_user.id
+        ).first()
+
+        if not settings or not settings.is_active:
+            raise HTTPException(
+                status_code=400,
+                detail="Automation settings not configured or disabled"
+            )
+
+        # Check if user has job portal credentials
+        credentials = db.query(JobPortalCredential).filter(
+            JobPortalCredential.user_id == current_user.id,
+            JobPortalCredential.is_active == True
+        ).all()
+
+        if not credentials:
+            raise HTTPException(
+                status_code=400,
+                detail="No active job portal credentials found"
+            )
+
+        # Start background automation task
+        from celery_config import celery_app
+        task = celery_app.send_task(
+            'tasks.automated_job_application',
+            args=[current_user.id],
+            kwargs={}
+        )
+
+        return {
+            "message": "Automation started successfully",
+            "task_id": task.id,
+            "settings": {
+                "max_applications_per_day": settings.max_applications_per_day,
+                "enabled_platforms": settings.enabled_platforms,
+                "match_threshold": settings.match_threshold
+            }
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@app.post("/stop-automation")
+async def stop_automation(current_user: User = Depends(get_current_user)):
+    """Stop the automated job application process"""
+    try:
+        db = SessionLocal()
+
+        # Update automation settings to inactive
+        settings = db.query(AutomationSetting).filter(
+            AutomationSetting.user_id == current_user.id
+        ).first()
+
+        if settings:
+            settings.is_active = False
+            settings.updated_at = datetime.utcnow()
+            db.commit()
+
+        return {"message": "Automation stopped successfully"}
+
+    except Exception as e:
+        return {"error": f"Failed to stop automation: {str(e)}"}
+    finally:
+        db.close()
+
+@app.get("/automation-engine/status")
+async def get_automation_engine_status(current_user: User = Depends(get_current_user)):
+    """Get the status of the 24/7 automation engine"""
+    try:
+        status = get_automation_status()
+        return {
+            "status": "success",
+            "data": status
+        }
+    except Exception as e:
+        return {"error": f"Failed to get automation status: {str(e)}"}
+
+@app.post("/automation-engine/start")
+async def start_automation_engine_endpoint(current_user: User = Depends(get_current_user)):
+    """Start the 24/7 automation engine"""
+    try:
+        if not automation_engine.is_running:
+            # Start the engine in the background
+            import asyncio
+            asyncio.create_task(automation_engine.start_engine())
+            return {"message": "24/7 Automation Engine started successfully"}
+        else:
+            return {"message": "Automation Engine is already running"}
+    except Exception as e:
+        return {"error": f"Failed to start automation engine: {str(e)}"}
+
+@app.post("/automation-engine/stop")
+async def stop_automation_engine_endpoint(current_user: User = Depends(get_current_user)):
+    """Stop the 24/7 automation engine"""
+    try:
+        await automation_engine.stop_engine()
+        return {"message": "24/7 Automation Engine stopped successfully"}
+    except Exception as e:
+        return {"error": f"Failed to stop automation engine: {str(e)}"}
+
+@app.get("/automation-engine/stats")
+async def get_automation_stats(current_user: User = Depends(get_current_user)):
+    """Get detailed automation statistics"""
+    try:
+        db = SessionLocal()
+
+        # Get user's automation settings
+        settings = db.query(AutomationSetting).filter(
+            AutomationSetting.user_id == current_user.id
+        ).first()
+
+        # Get application stats
+        today = datetime.now().date()
+        applications_today = db.query(JobApplication).filter(
+            JobApplication.user_id == current_user.id,
+            JobApplication.created_at >= today
+        ).count()
+
+        # Get connected portals
+        connected_portals = db.query(JobPortalCredential).filter(
+            JobPortalCredential.user_id == current_user.id
+        ).count()
+
+        # Get pending questions
+        pending_questions = db.query(QuestionnaireAnswer).filter(
+            QuestionnaireAnswer.user_id == current_user.id,
+            QuestionnaireAnswer.answer.is_(None)
+        ).count()
+
+        return {
+            "automation_enabled": settings.auto_apply_enabled if settings else False,
+            "applications_today": applications_today,
+            "max_daily_applications": settings.max_applications_per_day if settings else 0,
+            "connected_portals": connected_portals,
+            "pending_questions": pending_questions,
+            "engine_status": get_automation_status(),
+            "working_hours": {
+                "start": settings.working_hours_start if settings else "09:00",
+                "end": settings.working_hours_end if settings else "17:00",
+                "weekends_enabled": settings.enable_weekends if settings else False
+            }
+        }
+
+    except Exception as e:
+        return {"error": f"Failed to get automation stats: {str(e)}"}
+    finally:
+        db.close()
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

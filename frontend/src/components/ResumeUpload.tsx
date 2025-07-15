@@ -43,13 +43,15 @@ const ResumeUpload = () => {
       const response = await uploadResume(file);
       toast.success('Resume uploaded successfully!');
 
-      const { resume_text, user_info } = response.data;
-      localStorage.setItem('resumeText', resume_text);
-      localStorage.setItem('userInfo', JSON.stringify(user_info));
+      // Store parsed data if available
+      if (response.parsed_data) {
+        localStorage.setItem('resumeText', JSON.stringify(response.parsed_data));
+        localStorage.setItem('userInfo', JSON.stringify(response.parsed_data));
+      }
 
       const newResume: ResumeInfo = {
         name: file.name,
-        content: resume_text,
+        content: response.parsed_data ? JSON.stringify(response.parsed_data) : '',
         isPrimary: resumes.length === 0, // First upload is primary
       };
 

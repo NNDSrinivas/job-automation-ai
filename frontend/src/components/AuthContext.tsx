@@ -1,7 +1,7 @@
 // src/components/AuthContext.tsx
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+// Removed useNavigate import - will handle navigation in components
 import { jwtDecode } from 'jwt-decode';
 import axiosInstance from '../utils/axiosInstance';
 import { toast } from 'react-toastify';
@@ -30,10 +30,10 @@ export const AuthProvider = ({ children }: Props) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<{ id: number; username: string; email: string } | null>(null);
   const [loading, setLoading] = useState(true);
-  const navigate = useNavigate();
+  // Removed navigate - will be handled in individual components
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('access_token');
     if (token) {
       try {
         const decoded = jwtDecode<JwtPayload>(token);
@@ -54,12 +54,12 @@ export const AuthProvider = ({ children }: Props) => {
           }
         } else {
           // Token expired
-          localStorage.removeItem('token');
+          localStorage.removeItem('access_token');
           localStorage.removeItem('userInfo');
         }
       } catch (error) {
         console.error('Error decoding token:', error);
-        localStorage.removeItem('token');
+        localStorage.removeItem('access_token');
         localStorage.removeItem('userInfo');
       }
     }
@@ -76,7 +76,7 @@ export const AuthProvider = ({ children }: Props) => {
       });
 
       console.log('Login response:', response.data);
-      localStorage.setItem('token', response.data.access_token);
+      localStorage.setItem('access_token', response.data.access_token);
 
       // Store user info
       const userInfo = {
@@ -137,12 +137,13 @@ export const AuthProvider = ({ children }: Props) => {
   };
 
   const logout = () => {
-    localStorage.removeItem('token');
+    localStorage.removeItem('access_token');
     localStorage.removeItem('userInfo');
     setIsAuthenticated(false);
     setUser(null);
     toast.info('You have been logged out.');
-    navigate('/login');
+    // Navigation will be handled by the component that calls logout
+    window.location.href = '/login';
   };
 
   return (

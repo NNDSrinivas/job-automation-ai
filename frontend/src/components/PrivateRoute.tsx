@@ -1,7 +1,8 @@
 // src/components/PrivateRoute.tsx
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { isAuthenticated } from '../utils/auth';
+import { useAuth } from '../context/AuthContext';
+import LoadingSpinner from './ui/LoadingSpinner';
 
 interface Props {
   children: JSX.Element;
@@ -9,9 +10,13 @@ interface Props {
 
 const PrivateRoute = ({ children }: Props) => {
   const location = useLocation();
-  const loggedIn = isAuthenticated();
+  const { user, loading } = useAuth();
 
-  if (!loggedIn) {
+  if (loading) {
+    return <LoadingSpinner message="Checking authentication..." />;
+  }
+
+  if (!user) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 

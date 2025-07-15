@@ -24,6 +24,8 @@ alembic
 psycopg2-binary
 pydantic[email]
 websockets
+cryptography
+schedule
 
 # Monitoring and Production Dependencies
 prometheus-client

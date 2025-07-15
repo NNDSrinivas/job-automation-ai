@@ -1,33 +1,27 @@
-const BASE_URL = 'http://localhost:8000'; // Update if your backend runs elsewhere
+// Professional Cover Letter Service
+import { apiClient, API_ENDPOINTS } from '../config/api';
 
-export const generateCoverLetter = async (
-  resumeText: string,
-  jobDescription: string,
-  company: string,
-  position: string
-): Promise<string> => {
+export interface CoverLetterRequest {
+  jobTitle: string;
+  companyName: string;
+  jobDescription: string;
+  resumeId?: string;
+}
+
+export interface CoverLetterResponse {
+  content: string;
+  suggestions: string[];
+}
+
+export const generateCoverLetter = async (request: CoverLetterRequest): Promise<CoverLetterResponse> => {
   try {
-    const response = await fetch(`${BASE_URL}/generate-cover-letter`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        resume_text: resumeText,
-        job_description: jobDescription,
-        company,
-        position,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to generate cover letter: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    return data.cover_letter;
+    return await apiClient.post(API_ENDPOINTS.generateCoverLetter, request);
   } catch (error) {
-    console.error('Error generating cover letter:', error);
-    throw error;
+    console.error('Cover letter generation failed:', error);
+    throw new Error('Failed to generate cover letter. Please try again.');
   }
+};
+
+export default {
+  generateCoverLetter
 };
