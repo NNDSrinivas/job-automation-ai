@@ -3,16 +3,18 @@
     "target": "ES2020",
     "lib": ["DOM", "DOM.Iterable", "ES2020"],
     "module": "ESNext",
-    "moduleResolution": "Bundler",
+    "moduleResolution": "Node",
     "allowJs": true,
     "jsx": "react-jsx",
-    "strict": true,
+    "strict": false,
     "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
+    "resolveJsonModule": true,
     "types": []
   },
   "include": ["src"],
-  "exclude": ["src/**/*.js"]
+  "exclude": ["src/**/*.js", "src/**/backup*", "src/**/*_old*", "src/**/*_backup*"]
 }

@@ -1,26 +1,16 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import './index.css';
 import App from './App';
+import './index.css';
+
+console.log('=== JOB AUTOMATION AI STARTING ===');
 
 const rootElement = document.getElementById('root');
-
-console.log('=== MAIN.TSX LOADING ===');
-console.log('Root element:', rootElement);
-
 if (rootElement) {
-  console.log('Creating React root...');
+  console.log('Root found, rendering Job Automation AI app...');
   const root = ReactDOM.createRoot(rootElement);
-
-  console.log('Rendering Professional App component...');
-  root.render(
-    <React.StrictMode>
-      <App />
-    </React.StrictMode>
-  );
-  console.log('React render completed!');
+  root.render(<App />);
+  console.log('Job Automation AI app rendered successfully!');
 } else {
-  console.error('❌ Root element not found!');
+  console.error('Root element not found');
 }
-
-

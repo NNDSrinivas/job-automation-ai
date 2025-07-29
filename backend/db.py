@@ -12,3 +12,13 @@ def get_db_session():
     Create a new database session for background tasks
     """
     return SessionLocal()
+
+def get_db():
+    """
+    FastAPI dependency for database sessions
+    """
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()

@@ -4,15 +4,16 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --port 3000 --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "node server.cjs"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.4",
     "@tailwindcss/line-clamp": "^0.4.4",
-    "axios": "^1.6.7",
+    "axios": "^1.10.0",
     "chart.js": "^4.5.0",
     "clsx": "^2.1.1",
     "express": "^5.1.0",

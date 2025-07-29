@@ -49,13 +49,31 @@ const LandingPage: React.FC = () => {
                 to="/signup"
                 className="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-8 py-4 rounded-lg text-lg font-semibold hover:from-purple-700 hover:to-pink-700 transition-all duration-200 transform hover:scale-105"
               >
-                Start Your AI Journey
+                🚀 Get Started Free
+              </Link>
+              <Link
+                to="/jobs-demo"
+                className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-8 py-4 rounded-lg text-lg font-semibold hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 transform hover:scale-105"
+              >
+                🎯 Try Job Search Demo
+              </Link>
+              <Link
+                to="/jobs-full"
+                className="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-8 py-4 rounded-lg text-lg font-semibold hover:from-purple-700 hover:to-pink-700 transition-all duration-200 transform hover:scale-105"
+              >
+                🚀 Advanced Job Search
+              </Link>
+              <Link
+                to="/jobs-simple"
+                className="bg-gradient-to-r from-green-600 to-emerald-600 text-white px-8 py-4 rounded-lg text-lg font-semibold hover:from-green-700 hover:to-emerald-700 transition-all duration-200 transform hover:scale-105"
+              >
+                🔍 Simple Job Search
               </Link>
               <Link
                 to="/login"
                 className="border-2 border-white text-white px-8 py-4 rounded-lg text-lg font-semibold hover:bg-white hover:text-purple-900 transition-all duration-200"
               >
-                I Already Have an Account
+                Sign In to Access Full Features
               </Link>
             </div>
           </div>

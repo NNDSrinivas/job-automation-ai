@@ -259,3 +259,22 @@ deploy/
 
 # Documentation builds
 docs/_build/
+
+# Demo, test, and sample files
+*demo*
+*test*
+*sample*
+quick_start.*
+connection-test.*
+serpapi-test.*
+
+# Duplicate and backup files
+*_backup*
+*_old*
+*_clean*
+*_working*
+simple_*
+
+# Test databases
+test.db
+*.db

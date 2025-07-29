@@ -54,20 +54,34 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     console.log('🔍 Token value:', token ? `${token.substring(0, 20)}...` : 'null');
 
     if (token) {
-      console.log('🔍 Validating existing token...');
-      // Validate token and get user data
+      // Validate existing token
       validateToken(token);
     } else {
-      console.log('🔍 No token found, setting loading to false');
+      // No token, user needs to login
       setLoading(false);
     }
   }, []);
 
+  const autoLoginDemo = async () => {
+    try {
+      console.log('🎬 Auto-logging in with demo user...');
+      const success = await login('demo', 'demo123');
+      if (success) {
+        console.log('🎬 Demo auto-login successful!');
+      } else {
+        console.log('🎬 Demo auto-login failed, user will see login screen');
+        setLoading(false);
+      }
+    } catch (error) {
+      console.error('🎬 Demo auto-login error:', error);
+      setLoading(false);
+    }
+  };
+
   const validateToken = async (token: string) => {
     try {
-      console.log('🔍 Validating token with backend...');
-      console.log('🔍 Making request to: http://localhost:8000/profile');
-
+      console.log('🔍 Validating token with backend...');      console.log('🔍 Making request to: http://localhost:8000/profile');
+      
       const response = await fetch('http://localhost:8000/profile', {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -262,8 +276,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const logout = () => {
+    // Clear all possible authentication tokens and data
     localStorage.removeItem('authToken');
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    localStorage.removeItem('user');
+    localStorage.removeItem('userInfo');
+    
+    // Clear any session storage as well
+    sessionStorage.clear();
+    
+    // Reset user state
     setUser(null);
+    
+    console.log('🚪 User logged out, all auth data cleared');
     toast.info('You have been logged out successfully.');
   };
 

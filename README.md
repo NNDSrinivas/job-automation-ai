@@ -48,7 +48,22 @@ npm run dev
 - **Skills Demand Analysis**: Real-time market analysis with salary impact projections
 - **Career Path Optimization**: AI recommendations for skill development and job targeting
 
-### 🤖 **Advanced Job Automation**
+### 🔍 **Advanced Job Search & Filtering**
+- **LinkedIn/Indeed-Style Interface**: Professional job portal experience with comprehensive filtering
+- **Multi-Platform Search**: Unified search across LinkedIn, Indeed, Glassdoor, RemoteOK, Dice
+- **Smart Filtering System**: Filter by platform, location, job type, salary range, experience level
+- **Keyword Search**: Intelligent search with title, skills, and description matching
+- **Sort Options**: Best Match, Most Recent, Highest Salary, Relevance sorting
+
+### 🤖 **AI-Powered Resume Matching**
+- **Skills Analysis**: Automatic extraction of required skills from job descriptions
+- **Skills Matching**: Visual indicators showing which skills you have vs. required
+- **Experience Matching**: Compares your experience level with job requirements
+- **Title Matching**: Matches your past job titles with current opportunities
+- **AI Match Score**: Comprehensive percentage based on multiple factors
+- **Match Details Breakdown**: Shows title, skills, and experience match percentages
+
+### 🚀 **Advanced Job Automation**
 - **Multi-Platform Scraping**: Indeed, Dice, LinkedIn, Glassdoor, RemoteOK integration
 - **Smart Auto-Applier**: Intelligent form filling with anti-detection measures
 - **Adaptive Learning**: System learns from application outcomes to improve matching
@@ -74,11 +89,26 @@ npm run dev
 
 ## Features
 
+### 🔍 **Professional Job Search Portal**
+- **LinkedIn/Indeed-Style Interface**: Professional-grade job search experience
+- **Comprehensive Filtering**: Platform, location, job type, salary range, experience level filters
+- **Real-time Search**: Instant job filtering with intelligent keyword matching
+- **Advanced Sorting**: Sort by match score, date, salary, or relevance
+- **Filter Persistence**: Saved search preferences and applied filter tracking
+
 ### 🤖 **Intelligent Job Matching**
-- AI-powered job recommendation engine using OpenAI GPT
-- Semantic analysis of job descriptions and user profiles
-- Customizable matching criteria and preferences
-- Real-time match scoring and ranking
+- **AI-powered job recommendation engine** using OpenAI GPT
+- **Resume-based job prioritization** with skills and experience matching
+- **Semantic analysis** of job descriptions and user profiles
+- **Real-time match scoring** with detailed breakdown (title, skills, experience)
+- **Personalized job ranking** based on your uploaded resume
+
+### 🎨 **Enhanced Job Display**
+- **Skills Visualization**: Required skills with checkmarks for matched ones
+- **Match Analysis Panel**: Detailed breakdown of why a job matches your profile
+- **Company & Location Info**: Complete job details with posting dates
+- **Direct Apply Links**: One-click apply that opens original job posting
+- **Bookmark Functionality**: Save jobs for later review
 
 ### 🕷️ **Multi-Platform Job Scraping**
 - **Indeed**: Real-time job scraping with advanced filters
@@ -136,6 +166,107 @@ npm run dev
 - **Docker Compose** - Multi-service orchestration
 - **Nginx** - Reverse proxy and static file serving
 - **Environment-based configuration** - Development/Production settings
+
+## 🗄️ Database Architecture
+
+The application uses a robust database system designed for scalability and data integrity:
+
+### **Database Technology**
+- **Development**: SQLite (lightweight, file-based database)
+- **Production**: Configurable via `DATABASE_URL` (PostgreSQL recommended)
+- **ORM**: SQLAlchemy for object-relational mapping
+- **Migrations**: Alembic for schema versioning and updates
+
+### **Core Database Tables**
+
+#### **Users Management**
+- **`users`** - Core user information and authentication
+  - Authentication: username, email, hashed_password
+  - Profile: first_name, last_name, phone, linkedin_url
+  - Professional: experience_years, certifications, education
+  - Media: profile_picture_url
+
+#### **Job Data & Applications**
+- **`jobs`** - Scraped job listings from multiple platforms
+  - Job details: title, company, location, description, salary
+  - Platform tracking: source platform, URLs, posting dates
+  - Metadata: job_type, raw scraped data (JSON)
+
+- **`job_applications`** - Application tracking and status
+  - Application lifecycle: status, success tracking, timestamps
+  - Data storage: application_data (JSON), error messages
+  - User linking: foreign key relationships to users and jobs
+
+#### **Document Management**
+- **`resumes`** - Resume storage and management
+  - File management: S3 URLs, file sizes, upload timestamps
+  - Content: parsed resume data (JSON format)
+  - Organization: primary resume designation, user ownership
+
+#### **Automation & Preferences**
+- **`automation_settings`** - Job automation configuration
+  - Limits: max applications per day, match thresholds
+  - Preferences: enabled platforms, preferred locations
+  - Filters: salary ranges, job types, keywords (include/exclude)
+  - Scheduling: time windows, active days, automation status
+
+- **`job_portal_credentials`** - Secure credential storage
+  - Platform credentials: encrypted passwords for job sites
+  - Security: additional OAuth data, activity tracking
+  - Management: active status, last used timestamps
+
+#### **User Interaction Data**
+- **`questionnaire_answers`** - User preferences and responses
+  - Question management: standardized keys, question text
+  - Response data: user answers, question types
+  - Versioning: creation and update timestamps
+
+- **`enhanced_user_profiles`** - Extended profile information
+  - Additional user data beyond core profile
+  - Customizable fields for advanced features
+
+### **Database Features**
+
+#### **Security & Integrity**
+- **Password Security**: Bcrypt hashing for all user passwords
+- **Credential Encryption**: Job portal passwords encrypted at rest
+- **Data Relationships**: Foreign key constraints ensure data integrity
+- **Unique Constraints**: Prevent duplicate users and maintain data quality
+
+#### **Performance Optimization**
+- **Indexing**: Strategic indexes on frequently queried fields
+- **Query Optimization**: SQLAlchemy ORM with efficient relationship loading
+- **Connection Management**: Proper connection pooling and session handling
+
+#### **Development Features**
+- **Migration Support**: Alembic tracks and manages schema changes
+- **Relationship Mapping**: SQLAlchemy relationships for easy data access
+- **JSON Storage**: Flexible data storage for complex objects
+- **Environment Configuration**: Easy database switching for different environments
+
+### **Data Verification**
+You can verify your data storage by checking the database directly:
+
+```bash
+# View all tables
+sqlite3 test.db ".tables"
+
+# Check your user data
+sqlite3 test.db "SELECT id, username, email, first_name, last_name FROM users;"
+
+# View database schema
+sqlite3 test.db ".schema users"
+```
+
+### **Production Database Setup**
+For production deployments, configure PostgreSQL:
+
+```env
+# Production database configuration
+DATABASE_URL=postgresql://user:password@localhost:5432/job_automation_db
+```
+
+The application automatically handles the database differences through SQLAlchemy's database abstraction layer.
 
 ## Getting Started
 

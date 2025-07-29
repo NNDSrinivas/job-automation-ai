@@ -207,29 +207,19 @@ const LoginPage: React.FC = () => {
         <div className="bg-yellow-50/10 backdrop-blur-md rounded-lg p-4 border border-yellow-200/20">
           <p className="text-yellow-200 text-sm font-medium mb-2">🔍 Demo Credentials:</p>
           <div className="text-yellow-100 text-sm mb-3 space-y-1">
-            <p><strong>Option 1:</strong> demo@jobai.com / demo123</p>
-            <p><strong>Option 2:</strong> mounikak952@gmail.com / password123</p>
+            <p><strong>Email:</strong> mounikak952@gmail.com</p>
+            <p><strong>Password:</strong> password123</p>
           </div>
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setUsername('demo@jobai.com');
-                setPassword('demo123');
-              }}
-              className="flex-1 bg-yellow-600/20 text-yellow-200 py-2 px-3 rounded-lg hover:bg-yellow-600/30 transition-colors text-sm border border-yellow-400/20"
-            >
-              Use Demo
-            </button>
             <button
               type="button"
               onClick={() => {
                 setUsername('mounikak952@gmail.com');
                 setPassword('password123');
               }}
-              className="flex-1 bg-blue-600/20 text-blue-200 py-2 px-3 rounded-lg hover:bg-blue-600/30 transition-colors text-sm border border-blue-400/20"
+              className="flex-1 bg-yellow-600/20 text-yellow-200 py-2 px-3 rounded-lg hover:bg-yellow-600/30 transition-colors text-sm border border-yellow-400/20"
             >
-              Use User
+              Use Demo Credentials
             </button>
           </div>
         </div>

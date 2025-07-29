@@ -29,9 +29,8 @@ export interface User {
 
 export interface AuthResponse {
   access_token: string;
-  refresh_token: string;
+  token_type: string;
   user: User;
-  expires_in: number;
 }
 
 export class AuthService {
@@ -42,7 +41,6 @@ export class AuthService {
 
       // Store tokens
       localStorage.setItem('access_token', response.access_token);
-      localStorage.setItem('refresh_token', response.refresh_token);
       localStorage.setItem('user', JSON.stringify(response.user));
 
       return response;
@@ -55,11 +53,17 @@ export class AuthService {
   // Register new user
   static async signup(userData: SignupData): Promise<AuthResponse> {
     try {
-      const response = await apiClient.post(API_ENDPOINTS.signup, userData);
+      // Transform the data to match backend expectations
+      const signupData = {
+        email: userData.email,
+        password: userData.password,
+        full_name: `${userData.firstName} ${userData.lastName}`
+      };
+      
+      const response = await apiClient.post(API_ENDPOINTS.signup, signupData);
 
       // Store tokens
       localStorage.setItem('access_token', response.access_token);
-      localStorage.setItem('refresh_token', response.refresh_token);
       localStorage.setItem('user', JSON.stringify(response.user));
 
       return response;
@@ -78,7 +82,6 @@ export class AuthService {
     } finally {
       // Clear local storage
       localStorage.removeItem('access_token');
-      localStorage.removeItem('refresh_token');
       localStorage.removeItem('user');
 
       // Redirect to login

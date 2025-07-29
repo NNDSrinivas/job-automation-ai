@@ -3,11 +3,13 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { ToastContainer } from 'react-toastify';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './components/ToastProvider';
+import ErrorBoundary from './components/ErrorBoundary';
 import Dashboard from './pages/Dashboard';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
 import LandingPage from './pages/LandingPage';
-import SimpleJobsPage from './pages/SimpleJobsPage';
+import JobsPage from './pages/JobsPage';
+import JobListPage from './pages/JobListPage';
 import ProfilePage from './pages/ProfilePage';
 import AutomationPage from './pages/AutomationPage';
 import ApplicationsPage from './pages/ApplicationsPage';
@@ -69,7 +71,9 @@ const AuthenticatedApp: React.FC = () => {
           path="/jobs"
           element={
             <ProtectedRoute>
-              <SimpleJobsPage />
+              <ErrorBoundary>
+                <JobsPage />
+              </ErrorBoundary>
             </ProtectedRoute>
           }
         />

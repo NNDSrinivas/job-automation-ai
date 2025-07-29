@@ -5,13 +5,13 @@ const API_BASE_URL = window.location.hostname === 'localhost'
 
 const API_ENDPOINTS = {
   // Authentication
-  login: '/login',
-  signup: '/signup',
-  logout: '/logout',
-  refreshToken: '/refresh',
-  verifyEmail: '/verify-email',
-  requestPasswordReset: '/request-password-reset',
-  resetPassword: '/reset-password',
+  login: '/auth/login',
+  signup: '/auth/signup',
+  logout: '/auth/logout',
+  refreshToken: '/auth/refresh',
+  verifyEmail: '/auth/verify-email',
+  requestPasswordReset: '/auth/request-password-reset',
+  resetPassword: '/auth/reset-password',
 
   // User Profile
   profile: '/profile',
